@@ -1,0 +1,1018 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Allotment — POGO</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+:root{
+  --paper:#F2F4F3; --card:#FFFFFF; --ink:#16202A; --ink-2:#5A6B78;
+  --rule:#D3DAD9; --rule-2:#E8ECEB;
+  --good:#0F6E5C; --good-bg:#E4F0EC;
+  --short:#A8401F; --short-bg:#F7E9E3;
+  --w:#2D4A7C; --w-bg:#E5EAF3;
+  --amber:#8A6100; --amber-bg:#F6EEDC;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--paper); color:var(--ink);
+  font:15px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  font-variant-numeric:tabular-nums;
+  -webkit-text-size-adjust:100%;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:20px 16px 80px}
+
+header.top{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:4px}
+header.top h1{font-size:22px;font-weight:640;letter-spacing:-.01em;margin:0}
+header.top .ver{color:var(--ink-2);font-size:12px}
+.sub{color:var(--ink-2);font-size:13.5px;margin:0 0 20px;max-width:62ch}
+
+/* file intake */
+.intake{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+@media(max-width:720px){.intake{grid-template-columns:1fr}}
+.drop{
+  background:var(--card);border:1px solid var(--rule);border-radius:3px;
+  padding:14px 15px;cursor:pointer;display:block;position:relative;
+}
+.drop:hover{border-color:var(--ink-2)}
+.drop.on{border-color:var(--good);background:var(--good-bg)}
+.drop .lab{font-weight:600;font-size:14px}
+.drop .hint{color:var(--ink-2);font-size:12.5px;margin-top:3px}
+.drop input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+
+/* controls */
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:14px 0}
+button{
+  font:inherit;font-size:14px;background:var(--card);color:var(--ink);
+  border:1px solid var(--rule);border-radius:3px;padding:7px 13px;cursor:pointer;
+}
+button:hover{border-color:var(--ink-2)}
+button:disabled{opacity:.45;cursor:default}
+button.primary{background:var(--ink);color:#fff;border-color:var(--ink)}
+button.primary:hover{background:#22303d}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--w);outline-offset:1px}
+select,input[type=text]{font:inherit;font-size:14px;padding:6px 8px;border:1px solid var(--rule);border-radius:3px;background:var(--card);color:var(--ink)}
+label.inline{font-size:13.5px;color:var(--ink-2);display:flex;align-items:center;gap:6px}
+
+/* tabs */
+nav.tabs{display:flex;gap:2px;border-bottom:1px solid var(--rule);margin:18px 0 0;overflow-x:auto}
+nav.tabs button{
+  border:none;border-bottom:2px solid transparent;background:none;border-radius:0;
+  padding:9px 13px;color:var(--ink-2);white-space:nowrap;font-size:14px;
+}
+nav.tabs button[aria-selected=true]{color:var(--ink);border-bottom-color:var(--ink);font-weight:600}
+section.panel{display:none;padding-top:18px}
+section.panel.show{display:block}
+
+/* stat strip */
+.stats{display:flex;gap:0;flex-wrap:wrap;border:1px solid var(--rule);border-radius:3px;background:var(--card);margin:16px 0}
+.stat{padding:11px 16px;border-right:1px solid var(--rule-2);flex:1 1 auto;min-width:120px}
+.stat:last-child{border-right:none}
+.stat b{display:block;font-size:20px;font-weight:640;letter-spacing:-.01em}
+.stat span{font-size:12px;color:var(--ink-2)}
+
+/* tables */
+.tw{overflow-x:auto;border:1px solid var(--rule);border-radius:3px;background:var(--card)}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{padding:7px 11px;text-align:left;border-bottom:1px solid var(--rule-2);white-space:nowrap}
+th{position:sticky;top:0;background:var(--card);font-weight:600;font-size:12px;color:var(--ink-2);border-bottom:1px solid var(--rule);z-index:1}
+td.n,th.n{text-align:right}
+tbody tr:last-child td{border-bottom:none}
+tbody tr:hover{background:#FAFBFB}
+.grp td{background:#EDF0EF;font-weight:600;font-size:12.5px}
+
+.tag{display:inline-block;padding:1px 6px;border-radius:2px;font-size:11.5px;font-weight:600;line-height:1.5}
+.t-W1,.t-W2{background:var(--w-bg);color:var(--w)}
+.t-R1,.t-R2{background:var(--good-bg);color:var(--good)}
+.t-R3{background:var(--rule-2);color:var(--ink-2)}
+.full{color:var(--good);font-weight:600}
+.part{color:var(--amber);font-weight:600}
+.none{color:var(--ink-2)}
+.bal{color:var(--short);font-weight:600}
+
+.note{background:var(--amber-bg);border:1px solid #E4D3A8;border-radius:3px;padding:11px 13px;font-size:13.5px;margin:14px 0}
+.note.bad{background:var(--short-bg);border-color:#E8C4B4}
+.empty{color:var(--ink-2);padding:34px 16px;text-align:center;font-size:14px;background:var(--card);border:1px solid var(--rule);border-radius:3px}
+h2.sec{font-size:16px;font-weight:640;margin:26px 0 9px}
+h2.sec:first-child{margin-top:0}
+p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:70ch}
+.rules{background:var(--card);border:1px solid var(--rule);border-radius:3px;padding:14px 16px;font-size:13.5px}
+.rules ol{margin:8px 0 0;padding-left:20px}
+.rules li{margin:4px 0}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <h1>Allotment</h1>
+  <span class="ver">v1.0 &middot; pending orders &rarr; stock allotment</span>
+</header>
+<p class="sub">Drop in the two VastraApp exports. You get your usual pending-order reports, plus who gets the available stock and what stays short.</p>
+
+<div class="intake">
+  <label class="drop" id="dropOrders">
+    <span class="lab">Pending order file</span>
+    <span class="hint" id="hOrders">Design Wise Order Report &mdash; tap to choose</span>
+    <input type="file" id="fOrders" accept=".xlsx,.xls">
+  </label>
+  <label class="drop" id="dropStock">
+    <span class="lab">Stock file</span>
+    <span class="hint" id="hStock">Design Wise Stock Overall Detail &mdash; tap to choose</span>
+    <input type="file" id="fStock" accept=".xlsx,.xls">
+  </label>
+</div>
+
+<div class="bar">
+  <label class="inline">Allot as
+    <select id="mode">
+      <option value="sets" selected>whole sets</option>
+      <option value="pieces">loose pieces</option>
+    </select>
+  </label>
+  <label class="inline">Unassigned parties count as
+    <select id="defCat">
+      <option value="R3">R3</option><option value="R2">R2</option><option value="R1">R1</option>
+    </select>
+  </label>
+  <button class="primary" id="run" disabled>Run allotment</button>
+  <button id="exportBtn" disabled>Export to Excel</button>
+  <button id="saveCats">Save party list</button>
+  <button id="loadCats">Load party list</button>
+  <input type="file" id="fCats" accept=".json" class="sr">
+</div>
+
+<div id="msg"></div>
+
+<nav class="tabs" role="tablist">
+  <button role="tab" data-p="allot" aria-selected="true">Allotment</button>
+  <button role="tab" data-p="parties" aria-selected="false">Parties</button>
+  <button role="tab" data-p="design" aria-selected="false">Design wise pending</button>
+  <button role="tab" data-p="cust" aria-selected="false">Customer wise pending</button>
+  <button role="tab" data-p="short" aria-selected="false">Shortfall</button>
+  <button role="tab" data-p="odd" aria-selected="false">Odd lots</button>
+  <button role="tab" data-p="rules" aria-selected="false">Rules</button>
+</nav>
+
+<section class="panel show" id="p-allot"><div class="empty">Load both files, then run the allotment.</div></section>
+<section class="panel" id="p-parties"><div class="empty">Load the pending order file to list your parties.</div></section>
+<section class="panel" id="p-design"><div class="empty">Load the pending order file.</div></section>
+<section class="panel" id="p-cust"><div class="empty">Load the pending order file.</div></section>
+<section class="panel" id="p-short"><div class="empty">Run the allotment first.</div></section>
+<section class="panel" id="p-odd"><div class="empty">Run the allotment first.</div></section>
+<section class="panel" id="p-rules"></section>
+
+</div>
+<script>
+/* Allocation core — shared by the app and the Node test harness.
+   Everything here is pure: no DOM, no globals. */
+
+const CHAIN = ['W1', 'W2', 'R1', 'R2', 'R3'];
+const WHOLESALE = ['W1', 'W2'];
+const RETAIL = ['R1', 'R2'];
+
+/* ---------- size handling ---------- */
+
+// "0-8" -> [0..8]; "4" -> [4]; "Default"/"Mix"/"" -> null (unallocatable)
+function expandSize(raw) {
+  const s = String(raw == null ? '' : raw).trim();
+  if (!s) return null;
+  const m = s.match(/^(\d+)\s*[-–]\s*(\d+)$/);
+  if (m) {
+    let a = +m[1], b = +m[2];
+    if (a > b) [a, b] = [b, a];
+    if (b - a > 30) return null;
+    const out = [];
+    for (let i = a; i <= b; i++) out.push(i);
+    return out;
+  }
+  if (/^\d+$/.test(s)) return [+s];
+  return null;
+}
+
+function rangeLabel(sizes) {
+  if (sizes.length === 1) return String(sizes[0]);
+  return sizes[0] + '-' + sizes[sizes.length - 1];
+}
+
+// Group a {size: qty} map into contiguous runs that share the same per-size qty.
+function toRanges(perSize) {
+  const sizes = Object.keys(perSize).map(Number).filter(s => perSize[s] > 0).sort((a, b) => a - b);
+  const out = [];
+  let run = null;
+  for (const s of sizes) {
+    const q = perSize[s];
+    if (run && s === run.last + 1 && q === run.qty) { run.last = s; run.sizes.push(s); }
+    else { if (run) out.push(run); run = { first: s, last: s, qty: q, sizes: [s] }; }
+  }
+  if (run) out.push(run);
+  return out.map(r => ({ size: rangeLabel(r.sizes), perSize: r.qty, pieces: r.qty * r.sizes.length }));
+}
+
+/* ---------- normalisation ---------- */
+
+const stripDes = d => String(d || '').trim().replace(/^DES[-\s]*/i, '');
+const normColor = (c, aliases) => {
+  const k = String(c || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  return (aliases && aliases[k]) ? aliases[k] : k;
+};
+const normCust = n => String(n || '').trim().replace(/\s+/g, ' ');
+const custKey = n => normCust(n).toLowerCase();
+
+/* Spread a quantity evenly across sizes. Remainder lands on the smallest sizes
+   (negatives: remainder lands on the smallest sizes too, so signs stay consistent). */
+function spread(qty, sizes) {
+  const n = sizes.length;
+  const sign = qty < 0 ? -1 : 1;
+  const abs = Math.abs(qty);
+  const base = Math.floor(abs / n);
+  let rem = abs - base * n;
+  const out = {};
+  for (const s of sizes) {
+    let v = base;
+    if (rem > 0) { v += 1; rem -= 1; }
+    out[s] = sign * v;
+  }
+  return out;
+}
+
+/* ---------- stock netting ---------- */
+/* Returns Map "design|color" -> { perSize:{size:qty}, skipped:[rows] } */
+function netStock(stockRows, opts = {}) {
+  const aliases = opts.aliases || {};
+  const col = opts.stockColumn || 'Current Stock';
+  const map = new Map();
+  const skipped = [];
+  for (const r of stockRows) {
+    const design = stripDes(r['Design Name']);
+    const color = normColor(r['Color Name'], aliases);
+    const qty = Number(r[col] || 0);
+    if (!design || !color || color === 'no color' || !qty) continue;
+    const sizes = expandSize(r['Size']);
+    if (!sizes) { skipped.push({ design, color, size: r['Size'], qty }); continue; }
+    const key = design + '|' + color;
+    if (!map.has(key)) map.set(key, {});
+    const bucket = map.get(key);
+    const parts = spread(qty, sizes);
+    for (const s of sizes) bucket[s] = (bucket[s] || 0) + parts[s];
+  }
+  // clamp negatives away after netting
+  for (const [, bucket] of map) for (const s of Object.keys(bucket)) if (bucket[s] < 0) bucket[s] = 0;
+  return { stock: map, skipped };
+}
+
+/* ---------- demand ---------- */
+/* Returns array of line objects with per-size demand. */
+function buildDemandCore(orderRows, opts = {}) {
+  const aliases = opts.aliases || {};
+  const lines = [];
+  const skipped = [];
+  orderRows.forEach((r, i) => {
+    const qty = Number(r['Pending Qty.'] || 0);
+    if (!(qty > 0)) return;
+    const design = stripDes(r['Design Name']);
+    const color = normColor(r['Color'], aliases);
+    const sizes = expandSize(r['Size']);
+    if (!sizes || !design) { skipped.push({ row: i + 2, design, color, size: r['Size'], qty }); return; }
+    lines.push({
+      id: i,
+      order: r['Order Number'] || '',
+      date: parseDate(r['Order Date']),
+      dateRaw: r['Order Date'] || '',
+      expected: r['Expected Date'] || '',
+      customer: normCust(r['Customer Name']),
+      ckey: custKey(r['Customer Name']),
+      design, color,
+      sizeLabel: String(r['Size'] || '').trim(),
+      sizes,
+      qty,
+      perSize: spread(qty, sizes),
+      agent: r['Agent Name'] || '',
+      tag: r['Tag'] || '',
+    });
+  });
+  return { lines, skipped };
+}
+
+function parseDate(s) {
+  if (!s) return 0;
+  const m = String(s).match(/^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/);
+  if (m) {
+    const mo = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'].indexOf(m[2].toLowerCase());
+    if (mo >= 0) return Date.UTC(+m[3], mo, +m[1]);
+  }
+  const d = Date.parse(s);
+  return isNaN(d) ? 0 : d;
+}
+
+/* ---------- the waterfall ---------- */
+/*
+  Per design + colour + individual size:
+    retailReserve = min(retail demand, ceil(0.25 * A))       retail floor
+    wholesaleAvail = min(A - retailReserve, floor(0.75 * A))  wholesale ceiling
+    W1 then W2 draw from wholesaleAvail
+    remaining splits 50/50 between R1 and R2 (each capped by its own demand)
+    leftovers cascade W1 -> W2 -> R1 -> R2 -> R3
+  Within a tier, customers are served by the tie-break rule (fifo | prorata).
+*/
+function allocate(lines, stockMap, opts = {}) {
+  const catOf = opts.categories || {};        // ckey -> 'W1'|'W2'|'R1'|'R2'|'R3'
+  const defaultCat = opts.defaultCategory || 'R2';
+  const tieBreak = opts.tieBreak || 'fifo';
+  const wholesaleCapPct = opts.wholesaleCapPct != null ? opts.wholesaleCapPct : 0.75;
+  const retailFloorPct = opts.retailFloorPct != null ? opts.retailFloorPct : 0.25;
+
+  // index demand by design|color|size
+  const cells = new Map();
+  for (const ln of lines) {
+    for (const s of ln.sizes) {
+      const key = ln.design + '|' + ln.color + '|' + s;
+      if (!cells.has(key)) cells.set(key, []);
+      cells.get(key).push({ line: ln, want: ln.perSize[s], got: 0 });
+    }
+  }
+
+  const alloc = new Map();  // lineId -> {size: qty}
+  const give = (claim, n, size) => {
+    if (n <= 0) return 0;
+    const take = Math.min(n, claim.want - claim.got);
+    if (take <= 0) return 0;
+    claim.got += take;
+    if (!alloc.has(claim.line.id)) alloc.set(claim.line.id, {});
+    const a = alloc.get(claim.line.id);
+    a[size] = (a[size] || 0) + take;
+    return take;
+  };
+
+  const stats = { cells: 0, allocated: 0, available: 0, demanded: 0, swept: 0, capped: 0 };
+
+  // Process cells grouped by design+colour so the R1/R2 rounding remainder can be
+  // carried across that group's sizes. Without this, a cell holding 1 piece always
+  // rounds R1's half down to 0 and R2 silently wins every size.
+  const carry = new Map();
+  const orderedKeys = [...cells.keys()].sort();
+
+  for (const key of orderedKeys) {
+    const claims = cells.get(key);
+    const [design, color, sizeStr] = key.split('|');
+    const size = Number(sizeStr);
+    const bucket = stockMap.get(design + '|' + color);
+    let A = bucket ? (bucket[size] || 0) : 0;
+    const totalWant = claims.reduce((t, c) => t + c.want, 0);
+    stats.cells++; stats.available += A; stats.demanded += totalWant;
+    if (A <= 0) continue;
+
+    const byCat = {};
+    for (const c of CHAIN) byCat[c] = [];
+    for (const c of claims) {
+      const cat = catOf[c.line.ckey] || defaultCat;
+      (byCat[cat] || byCat[defaultCat]).push(c);
+    }
+    for (const c of CHAIN) byCat[c] = orderClaims(byCat[c], tieBreak);
+
+    const wantOf = cat => byCat[cat].reduce((t, c) => t + (c.want - c.got), 0);
+    const retailWant = wantOf('R1') + wantOf('R2');
+
+    const retailReserve = Math.min(retailWant, Math.ceil(retailFloorPct * A));
+    const wholesaleAvail = Math.min(A - retailReserve, Math.floor(wholesaleCapPct * A));
+
+    let pool = wholesaleAvail;
+    for (const cat of WHOLESALE) pool -= serve(byCat[cat], pool, size, give, tieBreak);
+    const usedWholesale = wholesaleAvail - pool;
+
+    let retailPool = A - usedWholesale;
+    const gkey = design + '|' + color;
+    const exact = retailPool / 2 + (carry.get(gkey) || 0);
+    const r1Share = Math.min(retailPool, Math.floor(exact));
+    carry.set(gkey, exact - r1Share);
+    const shares = { R1: r1Share, R2: retailPool - r1Share };
+    let used = 0;
+    for (const cat of RETAIL) used += serve(byCat[cat], shares[cat], size, give, tieBreak);
+
+    // cascade leftovers down the chain, then to R3
+    let left = A - usedWholesale - used;
+    for (const cat of CHAIN) {
+      if (left <= 0) break;
+      left -= serve(byCat[cat], left, size, give, tieBreak);
+    }
+    // final sweep back up the chain so nothing sits idle while demand exists
+    if (left > 0) {
+      for (const cat of CHAIN) {
+        if (left <= 0) break;
+        const before = left;
+        left -= serve(byCat[cat], left, size, give, tieBreak);
+        stats.swept += before - left;
+      }
+    }
+    stats.allocated += A - left;
+  }
+
+  return { alloc, stats };
+}
+
+function orderClaims(list, tieBreak) {
+  if (tieBreak === 'prorata') return list.slice();
+  return list.slice().sort((a, b) => (a.line.date - b.line.date) || (a.line.id - b.line.id));
+}
+
+// Hand out `budget` pieces to a tier's claims. Returns how many were used.
+function serve(claims, budget, size, give, tieBreak) {
+  if (budget <= 0 || !claims.length) return 0;
+  let used = 0;
+  if (tieBreak === 'prorata') {
+    const open = claims.filter(c => c.want > c.got);
+    const total = open.reduce((t, c) => t + (c.want - c.got), 0);
+    if (!total) return 0;
+    if (budget >= total) { for (const c of open) used += give(c, c.want - c.got, size); return used; }
+    // largest-remainder apportionment
+    const raw = open.map(c => ((c.want - c.got) * budget) / total);
+    const floors = raw.map(Math.floor);
+    let rem = budget - floors.reduce((a, b) => a + b, 0);
+    const order = raw.map((v, i) => [v - floors[i], i]).sort((a, b) => b[0] - a[0]);
+    for (let k = 0; k < rem; k++) floors[order[k % order.length][1]]++;
+    open.forEach((c, i) => { used += give(c, floors[i], size); });
+    return used;
+  }
+  for (const c of claims) {
+    if (used >= budget) break;
+    used += give(c, budget - used, size);
+  }
+  return used;
+}
+
+/* ---------- full-set-only customers ---------- */
+/* Release allocations for customers who won't accept partials unless the line is fully covered. */
+function enforceFullOnly(lines, alloc, fullOnly) {
+  const released = [];
+  for (const ln of lines) {
+    if (!fullOnly[ln.ckey]) continue;
+    const a = alloc.get(ln.id);
+    if (!a) continue;
+    const got = Object.values(a).reduce((t, v) => t + v, 0);
+    if (got < ln.qty) { alloc.delete(ln.id); released.push({ line: ln, got }); }
+  }
+  return released;
+}
+
+/* ---------- report builders ---------- */
+
+function designWiseReport(lines) {
+  const map = new Map();
+  for (const ln of lines) {
+    const key = ln.design + '|' + ln.color + '|' + ln.sizeLabel;
+    if (!map.has(key)) map.set(key, { design: ln.design, color: ln.color, size: ln.sizeLabel, qty: 0 });
+    map.get(key).qty += ln.qty;
+  }
+  return [...map.values()].sort(cmpDCS);
+}
+
+function customerWiseReport(lines) {
+  const map = new Map();
+  for (const ln of lines) {
+    const key = ln.ckey + '|' + ln.design + '|' + ln.color + '|' + ln.sizeLabel;
+    if (!map.has(key)) map.set(key, { customer: ln.customer, design: ln.design, color: ln.color, size: ln.sizeLabel, qty: 0 });
+    map.get(key).qty += ln.qty;
+  }
+  return [...map.values()].sort((a, b) => a.customer.localeCompare(b.customer) || cmpDCS(a, b));
+}
+
+function cmpDCS(a, b) {
+  return a.design.localeCompare(b.design, undefined, { numeric: true })
+    || a.color.localeCompare(b.color)
+    || String(a.size).localeCompare(String(b.size), undefined, { numeric: true });
+}
+
+/* Per-line allocation result rolled back up into size ranges. */
+function allocationRows(lines, alloc, catOf, defaultCat) {
+  const rows = [];
+  for (const ln of lines) {
+    const a = alloc.get(ln.id) || {};
+    const got = Object.values(a).reduce((t, v) => t + v, 0);
+    rows.push({
+      customer: ln.customer,
+      category: catOf[ln.ckey] || defaultCat,
+      design: ln.design,
+      color: ln.color,
+      size: ln.sizeLabel,
+      order: ln.order,
+      date: ln.dateRaw,
+      ordered: ln.qty,
+      allocated: got,
+      balance: ln.qty - got,
+      ranges: toRanges(a),
+      lineId: ln.id,
+    });
+  }
+  return rows;
+}
+
+const CORE = {
+  CHAIN, expandSize, toRanges, stripDes, normColor, normCust, custKey, spread,
+  netStock, buildDemandCore, allocate, enforceFullOnly,
+  designWiseReport, customerWiseReport, allocationRows, parseDate,
+};
+
+
+/* Set-preserving allocation.
+   A claim is served only in whole blocks: one block = one full traverse of the
+   order's own size range at its per-size rate. An order for 0-10 qty 22 is two
+   blocks of 11. Nothing gets a broken set. */
+
+
+function allocateSets(lines, stockMap, opts = {}) {
+  const catOf = opts.categories || {};
+  const defaultCat = opts.defaultCategory || 'R2';
+  const wholesaleCapPct = opts.wholesaleCapPct != null ? opts.wholesaleCapPct : 0.75;
+  const retailFloorPct = opts.retailFloorPct != null ? opts.retailFloorPct : 0.25;
+
+  const groups = new Map();
+  for (const ln of lines) {
+    const k = ln.design + '|' + ln.color;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(ln);
+  }
+
+  const alloc = new Map();
+  const stats = { groups: 0, allocated: 0, available: 0, demanded: 0, blockedByShape: 0 };
+  const carry = new Map();
+
+  for (const [gkey, glines] of groups) {
+    const bucket = stockMap.get(gkey);
+    const avail = {};
+    let A = 0;
+    if (bucket) for (const s of Object.keys(bucket)) { avail[s] = bucket[s]; A += bucket[s]; }
+    const demanded = glines.reduce((t, l) => t + l.qty, 0);
+    stats.groups++; stats.available += A; stats.demanded += demanded;
+    if (A <= 0) continue;
+
+    const claims = glines.map(ln => ({
+      line: ln,
+      per: ln.perSize,
+      blockCost: ln.sizes.reduce((t, s) => t + ln.perSize[s], 0),
+      blocksWanted: Math.max(1, Math.round(ln.qty / ln.sizes.reduce((t, s) => t + ln.perSize[s], 0))),
+      blocksGot: 0,
+      cat: catOf[ln.ckey] || defaultCat,
+    }));
+
+    const byCat = {};
+    for (const c of CHAIN) byCat[c] = [];
+    for (const c of claims) (byCat[c.cat] || byCat[defaultCat]).push(c);
+    for (const c of CHAIN) byCat[c].sort((a, b) => (a.line.date - b.line.date) || (a.line.id - b.line.id));
+
+    const openPieces = cat => byCat[cat].reduce((t, c) => t + (c.blocksWanted - c.blocksGot) * c.blockCost, 0);
+
+    const canTake = c => c.line.sizes.every(s => (avail[s] || 0) >= c.per[s]);
+    const take = c => {
+      for (const s of c.line.sizes) avail[s] -= c.per[s];
+      c.blocksGot++;
+      const a = alloc.get(c.line.id) || {};
+      for (const s of c.line.sizes) a[s] = (a[s] || 0) + c.per[s];
+      alloc.set(c.line.id, a);
+      return c.blockCost;
+    };
+
+    // Serve a tier from a piece budget, in whole blocks only.
+    const serve = (cat, budget) => {
+      let used = 0;
+      let progress = true;
+      while (progress && used < budget) {
+        progress = false;
+        for (const c of byCat[cat]) {
+          if (c.blocksGot >= c.blocksWanted) continue;
+          if (used + c.blockCost > budget) continue;
+          if (!canTake(c)) continue;
+          used += take(c);
+          progress = true;
+        }
+      }
+      return used;
+    };
+
+    // Percentage caps only make sense when there is enough stock for every tier
+    // with demand to receive at least one whole block. Below that, splitting the
+    // stock strands it — nobody's block fits — so priority order decides outright.
+    let need = 0;
+    for (const cat of CHAIN) {
+      const open = byCat[cat].filter(c => c.blocksGot < c.blocksWanted);
+      if (open.length) need += Math.min(...open.map(c => c.blockCost));
+    }
+    if (A < need) {
+      let leftThin = A;
+      for (const cat of CHAIN) {
+        if (leftThin <= 0) break;
+        leftThin -= serve(cat, leftThin);
+      }
+      stats.allocated += A - leftThin;
+      stats.thinGroups = (stats.thinGroups || 0) + 1;
+      if (leftThin > 0) stats.blockedByShape += leftThin;
+      continue;
+    }
+
+    const retailWant = openPieces('R1') + openPieces('R2');
+    const retailReserve = Math.min(retailWant, Math.ceil(retailFloorPct * A));
+    const wholesaleAvail = Math.min(A - retailReserve, Math.floor(wholesaleCapPct * A));
+
+    let usedW = 0;
+    for (const cat of WHOLESALE) usedW += serve(cat, wholesaleAvail - usedW);
+
+    const retailPool = A - usedW;
+    const exact = retailPool / 2 + (carry.get(gkey) || 0);
+    const r1Share = Math.min(retailPool, Math.floor(exact));
+    carry.set(gkey, exact - r1Share);
+    const shares = { R1: r1Share, R2: retailPool - r1Share };
+    let usedR = 0;
+    for (const cat of RETAIL) usedR += serve(cat, shares[cat]);
+
+    // cascade, then sweep — nothing idle while a whole block still fits
+    let left = A - usedW - usedR;
+    for (let pass = 0; pass < 2 && left > 0; pass++) {
+      for (const cat of CHAIN) {
+        if (left <= 0) break;
+        left -= serve(cat, left);
+      }
+    }
+    stats.allocated += A - left;
+    if (left > 0 && glines.some(l => (alloc.get(l.id) ? sum(alloc.get(l.id)) : 0) < l.qty)) {
+      stats.blockedByShape += left;
+    }
+  }
+
+  return { alloc, stats };
+}
+
+const sum = o => Object.values(o).reduce((a, b) => a + b, 0);
+
+
+/* ---------- state ---------- */
+const S = {
+  orderRows: null, stockRows: null,
+  lines: [], stockMap: null, skippedStock: [], skippedOrders: [],
+  cats: {}, fullOnly: {}, names: {},   // ckey -> category / flag / display name
+  aliases: {},                          // order colour -> stock colour
+  result: null,
+};
+const CATS = ['W1', 'W2', 'R1', 'R2', 'R3'];
+
+/* persistence — works when deployed, degrades quietly in a preview sandbox */
+const store = {
+  get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+};
+
+/* ---------- helpers ---------- */
+const $ = s => document.querySelector(s);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const title = s => String(s).replace(/\b\w/g, c => c.toUpperCase());
+
+function msg(html, kind) {
+  $('#msg').innerHTML = html ? '<div class="note' + (kind === 'bad' ? ' bad' : '') + '">' + html + '</div>' : '';
+}
+
+function readSheet(file, wanted) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onerror = () => rej(new Error('Could not read ' + file.name));
+    r.onload = e => {
+      try {
+        const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+        let name = wb.SheetNames.find(n => n.toLowerCase() === wanted.toLowerCase());
+        if (!name) name = wb.SheetNames.find(n => n.toLowerCase().includes(wanted.toLowerCase().split(' ')[0]));
+        if (!name) name = wb.SheetNames[0];
+        res({ rows: XLSX.utils.sheet_to_json(wb.Sheets[name], { defval: '', raw: false }), sheet: name });
+      } catch (err) { rej(err); }
+    };
+    r.readAsArrayBuffer(file);
+  });
+}
+
+function need(rows, cols, what) {
+  if (!rows.length) return 'The ' + what + ' sheet is empty.';
+  const have = Object.keys(rows[0]);
+  const miss = cols.filter(c => !have.includes(c));
+  return miss.length ? 'The ' + what + ' file is missing: ' + miss.join(', ') + '. Found: ' + have.slice(0, 8).join(', ') + '…' : '';
+}
+
+/* ---------- intake ---------- */
+$('#fOrders').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try {
+    const { rows, sheet } = await readSheet(f, 'Input Design Pending Orders');
+    const bad = need(rows, ['Design Name', 'Customer Name', 'Color', 'Size', 'Pending Qty.'], 'pending order');
+    if (bad) return msg(bad, 'bad');
+    S.orderRows = rows;
+    $('#hOrders').textContent = rows.length + ' rows from “' + sheet + '”';
+    $('#dropOrders').classList.add('on');
+    buildDemand();
+  } catch (err) { msg('Could not open that file: ' + esc(err.message), 'bad'); }
+});
+
+$('#fStock').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try {
+    const { rows, sheet } = await readSheet(f, 'Design Stock');
+    const bad = need(rows, ['Design Name', 'Color Name', 'Size', 'Current Stock'], 'stock');
+    if (bad) return msg(bad, 'bad');
+    S.stockRows = rows;
+    $('#hStock').textContent = rows.length + ' rows from “' + sheet + '”';
+    $('#dropStock').classList.add('on');
+    buildStock();
+  } catch (err) { msg('Could not open that file: ' + esc(err.message), 'bad'); }
+});
+
+function buildDemand() {
+  const d = buildDemandCore(S.orderRows, { aliases: S.aliases });
+  S.lines = d.lines; S.skippedOrders = d.skipped;
+  // seed party list, keeping anything already assigned
+  const saved = store.get('allot.parties') || {};
+  for (const ln of S.lines) {
+    S.names[ln.ckey] = ln.customer;
+    if (!S.cats[ln.ckey]) {
+      if (saved[ln.ckey]) { S.cats[ln.ckey] = saved[ln.ckey].cat; S.fullOnly[ln.ckey] = saved[ln.ckey].full; }
+      else {
+        const raw = (S.orderRows.find(r => custKey(r['Customer Name']) === ln.ckey) || {})['Customer Category'] || '';
+        S.cats[ln.ckey] = /wholesal/i.test(raw) ? 'W1' : '';
+      }
+    }
+  }
+  renderParties(); renderPending(); ready();
+}
+
+function buildStock() {
+  const r = netStock(S.stockRows, { aliases: S.aliases, stockColumn: 'Current Stock' });
+  S.stockMap = r.stock; S.skippedStock = r.skipped;
+  ready();
+}
+
+function ready() {
+  const ok = !!(S.lines.length && S.stockMap);
+  $('#run').disabled = !ok;
+  if (ok) checkColours();
+}
+
+/* colours present in orders but absent from stock */
+function checkColours() {
+  const sc = new Set([...S.stockMap.keys()].map(k => k.split('|')[1]));
+  const missing = new Map();
+  for (const ln of S.lines) {
+    if (!S.stockMap.has(ln.design + '|' + ln.color) && !sc.has(ln.color)) {
+      missing.set(ln.color, (missing.get(ln.color) || 0) + ln.qty);
+    }
+  }
+  if (!missing.size) return msg('');
+  const list = [...missing.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
+    .map(([c, q]) => esc(title(c)) + ' (' + q + ')').join(', ');
+  msg('<b>' + missing.size + ' colours in the orders have no stock rows:</b> ' + list +
+      '. They will show as fully short. Fix the spelling in VastraApp, or map them on the Parties tab.');
+}
+
+/* ---------- parties ---------- */
+function renderParties() {
+  const keys = Object.keys(S.names).sort((a, b) => S.names[a].localeCompare(S.names[b]));
+  if (!keys.length) return;
+  const counts = {};
+  for (const ln of S.lines) counts[ln.ckey] = (counts[ln.ckey] || 0) + ln.qty;
+
+  let h = '<h2 class="sec">Party categories</h2>' +
+    '<p class="exp">W1 and W2 are your wholesalers and draw first. Set every party here — anything left blank falls to the category chosen in the toolbar. ' +
+    '“Whole order only” releases a party’s allotment back to the pool unless it covers their full line.</p>';
+  h += '<div class="bar"><label class="inline">Set all blank to <select id="bulkCat">' +
+    CATS.map(c => '<option>' + c + '</option>').join('') + '</select></label><button id="bulkGo">Apply</button></div>';
+  h += '<div class="tw"><table><thead><tr><th>Party</th><th class="n">Pending pcs</th><th>Category</th><th>Whole order only</th></tr></thead><tbody>';
+  for (const k of keys) {
+    h += '<tr><td>' + esc(S.names[k]) + '</td><td class="n">' + (counts[k] || 0) + '</td>' +
+      '<td><select data-cat="' + esc(k) + '"><option value="">—</option>' +
+      CATS.map(c => '<option' + (S.cats[k] === c ? ' selected' : '') + '>' + c + '</option>').join('') +
+      '</select></td>' +
+      '<td><input type="checkbox" data-full="' + esc(k) + '"' + (S.fullOnly[k] ? ' checked' : '') +
+      ' aria-label="Whole order only for ' + esc(S.names[k]) + '"></td></tr>';
+  }
+  h += '</tbody></table></div>';
+  $('#p-parties').innerHTML = h;
+
+  $('#p-parties').querySelectorAll('[data-cat]').forEach(el => el.addEventListener('change', e => {
+    S.cats[e.target.dataset.cat] = e.target.value; persistParties();
+  }));
+  $('#p-parties').querySelectorAll('[data-full]').forEach(el => el.addEventListener('change', e => {
+    S.fullOnly[e.target.dataset.full] = e.target.checked; persistParties();
+  }));
+  $('#bulkGo').addEventListener('click', () => {
+    const v = $('#bulkCat').value;
+    for (const k of keys) if (!S.cats[k]) S.cats[k] = v;
+    persistParties(); renderParties();
+  });
+}
+
+function persistParties() {
+  const o = {};
+  for (const k of Object.keys(S.names)) o[k] = { cat: S.cats[k] || '', full: !!S.fullOnly[k], name: S.names[k] };
+  store.set('allot.parties', o);
+}
+
+/* ---------- the two pending reports ---------- */
+function renderPending() {
+  const dw = designWiseReport(S.lines);
+  let h = '<h2 class="sec">Design wise pending orders</h2><p class="exp">' + dw.length +
+    ' rows, ' + dw.reduce((t, r) => t + r.qty, 0) + ' pieces pending.</p>';
+  h += '<div class="tw"><table><thead><tr><th>Design</th><th>Colour</th><th>Size</th><th class="n">Pending qty</th></tr></thead><tbody>';
+  for (const r of dw) h += '<tr><td>DES-' + esc(r.design) + '</td><td>' + esc(title(r.color)) + '</td><td>' + esc(r.size) + '</td><td class="n">' + r.qty + '</td></tr>';
+  $('#p-design').innerHTML = h + '</tbody></table></div>';
+
+  const cw = customerWiseReport(S.lines);
+  let c = '<h2 class="sec">Customer wise pending orders</h2><p class="exp">' + cw.length + ' rows across ' +
+    new Set(cw.map(r => r.customer)).size + ' parties.</p>';
+  c += '<div class="tw"><table><thead><tr><th>Customer</th><th>Design</th><th>Colour</th><th>Size</th><th class="n">Pending qty</th></tr></thead><tbody>';
+  let last = null;
+  for (const r of cw) {
+    if (r.customer !== last) { c += '<tr class="grp"><td colspan="5">' + esc(r.customer) + '</td></tr>'; last = r.customer; }
+    c += '<tr><td></td><td>DES-' + esc(r.design) + '</td><td>' + esc(title(r.color)) + '</td><td>' + esc(r.size) + '</td><td class="n">' + r.qty + '</td></tr>';
+  }
+  $('#p-cust').innerHTML = c + '</tbody></table></div>';
+}
+
+/* ---------- run ---------- */
+$('#run').addEventListener('click', () => {
+  const defCat = $('#defCat').value;
+  const cats = {};
+  for (const k of Object.keys(S.cats)) if (S.cats[k]) cats[k] = S.cats[k];
+  const opts = { categories: cats, defaultCategory: defCat };
+  const r = $('#mode').value === 'sets'
+    ? allocateSets(S.lines, S.stockMap, opts)
+    : allocate(S.lines, S.stockMap, opts);
+  const released = enforceFullOnly(S.lines, r.alloc, S.fullOnly);
+  S.result = { ...r, released, cats, defCat };
+  $('#exportBtn').disabled = false;
+  renderAllot(); renderShort(); renderOdd();
+});
+
+function rows() { return allocationRows(S.lines, S.result.alloc, S.result.cats, S.result.defCat); }
+
+function renderAllot() {
+  const rs = rows().filter(r => r.allocated > 0)
+    .sort((a, b) => CATS.indexOf(a.category) - CATS.indexOf(b.category) || a.customer.localeCompare(b.customer)
+      || a.design.localeCompare(b.design, undefined, { numeric: true }));
+  const all = rows();
+  const ordered = all.reduce((t, r) => t + r.ordered, 0);
+  const alloted = all.reduce((t, r) => t + r.allocated, 0);
+  const fully = all.filter(r => r.allocated === r.ordered).length;
+
+  let h = '<div class="stats">' +
+    stat(alloted, 'pieces allotted') +
+    stat(ordered - alloted, 'pieces short') +
+    stat(fully + ' / ' + all.length, 'lines fully covered') +
+    stat(new Set(rs.map(r => r.customer)).size, 'parties getting stock') +
+    stat(S.result.stats.blockedByShape || 0, 'stranded in odd sizes') +
+    '</div>';
+
+  if (S.result.released.length) {
+    h += '<div class="note">' + S.result.released.length + ' allotment(s) released because the party takes whole orders only. ' +
+      'That stock is not reserved &mdash; run again after changing the flag if you want it placed.</div>';
+  }
+  if (!rs.length) { $('#p-allot').innerHTML = h + '<div class="empty">Nothing could be allotted from this stock file.</div>'; return; }
+
+  h += '<h2 class="sec">Who gets what</h2><p class="exp">Sizes shown are the actual ranges being reserved, not the ordered range.</p>';
+  h += '<div class="tw"><table><thead><tr><th>Party</th><th>Cat</th><th>Design</th><th>Colour</th><th>Ordered</th><th class="n">Qty</th><th>Allot sizes</th><th class="n">Allotted</th><th class="n">Balance</th></tr></thead><tbody>';
+  let last = null;
+  for (const r of rs) {
+    if (r.customer !== last) { h += '<tr class="grp"><td colspan="9">' + esc(r.customer) + ' <span class="tag t-' + r.category + '">' + r.category + '</span></td></tr>'; last = r.customer; }
+    h += '<tr><td></td><td><span class="tag t-' + r.category + '">' + r.category + '</span></td>' +
+      '<td>DES-' + esc(r.design) + '</td><td>' + esc(title(r.color)) + '</td><td>' + esc(r.size) + '</td>' +
+      '<td class="n">' + r.ordered + '</td>' +
+      '<td>' + r.ranges.map(x => esc(x.size) + '&times;' + x.pieces).join(', ') + '</td>' +
+      '<td class="n ' + (r.allocated === r.ordered ? 'full' : 'part') + '">' + r.allocated + '</td>' +
+      '<td class="n ' + (r.balance ? 'bal' : 'none') + '">' + (r.balance || '—') + '</td></tr>';
+  }
+  $('#p-allot').innerHTML = h + '</tbody></table></div>';
+}
+
+function stat(v, l) { return '<div class="stat"><b>' + v + '</b><span>' + l + '</span></div>'; }
+
+function renderShort() {
+  const rs = rows().filter(r => r.balance > 0)
+    .sort((a, b) => b.balance - a.balance);
+  let h = '<h2 class="sec">Shortfall</h2><p class="exp">' + rs.length + ' order lines still uncovered, ' +
+    rs.reduce((t, r) => t + r.balance, 0) + ' pieces. These are the lines that need a production date from Set Tracker.</p>';
+  if (!rs.length) { $('#p-short').innerHTML = h + '<div class="empty">Every line is fully covered.</div>'; return; }
+  h += '<div class="tw"><table><thead><tr><th>Design</th><th>Colour</th><th>Size</th><th>Party</th><th>Cat</th><th>Order</th><th>Order date</th><th class="n">Ordered</th><th class="n">Allotted</th><th class="n">Short</th></tr></thead><tbody>';
+  for (const r of rs) {
+    h += '<tr><td>DES-' + esc(r.design) + '</td><td>' + esc(title(r.color)) + '</td><td>' + esc(r.size) + '</td>' +
+      '<td>' + esc(r.customer) + '</td><td><span class="tag t-' + r.category + '">' + r.category + '</span></td>' +
+      '<td>' + esc(r.order) + '</td><td>' + esc(r.date) + '</td>' +
+      '<td class="n">' + r.ordered + '</td><td class="n">' + r.allocated + '</td><td class="n bal">' + r.balance + '</td></tr>';
+  }
+  $('#p-short').innerHTML = h + '</tbody></table></div>';
+}
+
+function renderOdd() {
+  // stock left over per design+colour after allotment
+  const used = new Map();
+  for (const ln of S.lines) {
+    const a = S.result.alloc.get(ln.id); if (!a) continue;
+    for (const s of Object.keys(a)) {
+      const k = ln.design + '|' + ln.color;
+      if (!used.has(k)) used.set(k, {});
+      used.get(k)[s] = (used.get(k)[s] || 0) + a[s];
+    }
+  }
+  const demanded = new Set(S.lines.map(l => l.design + '|' + l.color));
+  const out = [];
+  for (const [k, bucket] of S.stockMap) {
+    const u = used.get(k) || {};
+    const leftover = {};
+    let n = 0;
+    for (const s of Object.keys(bucket)) {
+      const v = bucket[s] - (u[s] || 0);
+      if (v > 0) { leftover[s] = v; n += v; }
+    }
+    if (!n || !demanded.has(k)) continue;
+    out.push({ design: k.split('|')[0], color: k.split('|')[1], pieces: n, ranges: toRanges(leftover) });
+  }
+  out.sort((a, b) => b.pieces - a.pieces);
+  let h = '<h2 class="sec">Odd lots</h2><p class="exp">Stock on designs that have open orders, but in size shapes no pending order can absorb as a whole set. ' +
+    'This is where broken inventory hides &mdash; worth pairing with a top-up production or a rate-wise clearance.</p>';
+  if (!out.length) { $('#p-odd').innerHTML = h + '<div class="empty">No odd lots left over.</div>'; return; }
+  h += '<div class="tw"><table><thead><tr><th>Design</th><th>Colour</th><th class="n">Pieces</th><th>Sizes left</th></tr></thead><tbody>';
+  for (const r of out) h += '<tr><td>DES-' + esc(r.design) + '</td><td>' + esc(title(r.color)) + '</td><td class="n">' + r.pieces + '</td><td>' + r.ranges.map(x => esc(x.size) + '&times;' + x.pieces).join(', ') + '</td></tr>';
+  $('#p-odd').innerHTML = h + '</tbody></table></div>';
+}
+
+/* ---------- export ---------- */
+$('#exportBtn').addEventListener('click', () => {
+  const wb = XLSX.utils.book_new();
+  const rs = rows();
+  const A = rs.filter(r => r.allocated > 0).map(r => ({
+    'Customer Name': r.customer, 'Category': r.category, 'Design Name': 'DES-' + r.design,
+    'Color': title(r.color), 'Ordered Size': r.size, 'Order Qty': r.ordered,
+    'Allot Sizes': r.ranges.map(x => x.size + ' x ' + x.pieces).join(', '),
+    'Allotted': r.allocated, 'Balance': r.balance, 'Order Number': r.order, 'Order Date': r.date,
+  }));
+  const B = rs.filter(r => r.balance > 0).map(r => ({
+    'Design Name': 'DES-' + r.design, 'Color': title(r.color), 'Size': r.size,
+    'Customer Name': r.customer, 'Category': r.category, 'Order Number': r.order,
+    'Order Date': r.date, 'Ordered': r.ordered, 'Allotted': r.allocated, 'Short': r.balance,
+  }));
+  const C = designWiseReport(S.lines).map(r => ({ 'Design Name': 'DES-' + r.design, 'Color': title(r.color), 'Size': r.size, 'Pending Qty.': r.qty }));
+  const D = customerWiseReport(S.lines).map(r => ({ 'Customer Name': r.customer, 'Design Name': 'DES-' + r.design, 'Color': title(r.color), 'Size': r.size, 'Pending Qty.': r.qty }));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(A), 'Allotment');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(B), 'Shortfall');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(C), 'Design Wise Pending');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(D), 'Customer Wise Pending');
+  const d = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, 'Allotment-' + d + '.xlsx');
+});
+
+/* party list export / import */
+$('#saveCats').addEventListener('click', () => {
+  const o = {};
+  for (const k of Object.keys(S.names)) o[k] = { cat: S.cats[k] || '', full: !!S.fullOnly[k], name: S.names[k] };
+  const blob = new Blob([JSON.stringify(o, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'party-categories.json'; a.click();
+  URL.revokeObjectURL(a.href);
+});
+$('#loadCats').addEventListener('click', () => $('#fCats').click());
+$('#fCats').addEventListener('change', e => {
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = ev => {
+    try {
+      const o = JSON.parse(ev.target.result);
+      for (const k of Object.keys(o)) { S.cats[k] = o[k].cat; S.fullOnly[k] = !!o[k].full; if (!S.names[k]) S.names[k] = o[k].name || k; }
+      persistParties(); renderParties();
+      msg('Party list loaded — ' + Object.keys(o).length + ' parties.');
+    } catch (err) { msg('That file is not a saved party list.', 'bad'); }
+  };
+  r.readAsText(f);
+});
+
+/* ---------- tabs ---------- */
+document.querySelectorAll('nav.tabs button').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('nav.tabs button').forEach(x => x.setAttribute('aria-selected', x === b));
+  document.querySelectorAll('section.panel').forEach(p => p.classList.toggle('show', p.id === 'p-' + b.dataset.p));
+}));
+
+/* ---------- rules panel ---------- */
+$('#p-rules').innerHTML =
+  '<h2 class="sec">How stock is split</h2>' +
+  '<div class="rules">Applied per design and colour, on the netted Current Stock figure.' +
+  '<ol>' +
+  '<li>Negative stock rows are netted against positive ones first. A row like 0-10 = 22 spreads as 2 pieces per size; 0-5 = &minus;6 takes 1 back off each of those sizes.</li>' +
+  '<li>Retail keeps a floor of 25%. Wholesale (W1 then W2) draws from the rest, up to a ceiling of 75%.</li>' +
+  '<li>What remains splits half to R1, half to R2. Odd pieces carry forward across sizes so neither is short-changed by rounding.</li>' +
+  '<li>Anything still unplaced cascades W1 &rarr; W2 &rarr; R1 &rarr; R2 &rarr; R3, then sweeps again so no stock sits idle while demand is open.</li>' +
+  '<li>When stock is too thin for every category with demand to take at least one whole set, the percentages are skipped and priority order decides outright.</li>' +
+  '<li>Within a category, the oldest order date is served first.</li>' +
+  '</ol></div>' +
+  '<h2 class="sec">R3 is provisional</h2><p class="exp">Nothing here is committed. Re-run with a newer pending order file and stock will re-flow to whoever now has the demand, including pulling back from R3.</p>';
+
+/* restore saved party list on load */
+(function () {
+  const saved = store.get('allot.parties');
+  if (saved) for (const k of Object.keys(saved)) { S.cats[k] = saved[k].cat; S.fullOnly[k] = !!saved[k].full; S.names[k] = saved[k].name || k; }
+})();
+
+</script>
+</body>
+</html>
