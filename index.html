@@ -3,12 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Allotment — POGO</title>
+<title>Pending &amp; Allotment — POGO</title>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <style>
 :root{
   --paper:#F2F4F3; --card:#FFFFFF; --ink:#16202A; --ink-2:#5A6B78;
-  --rule:#D3DAD9; --rule-2:#E8ECEB;
+  --rule:#D3DAD9; --rule-2:#E8ECEB; --sub:#F6F8F7;
   --good:#0F6E5C; --good-bg:#E4F0EC;
   --short:#A8401F; --short-bg:#F7E9E3;
   --w:#2D4A7C; --w-bg:#E5EAF3;
@@ -16,91 +18,80 @@
 }
 *{box-sizing:border-box}
 html,body{margin:0;padding:0}
-body{
-  background:var(--paper); color:var(--ink);
+body{background:var(--paper);color:var(--ink);
   font:15px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-  font-variant-numeric:tabular-nums;
-  -webkit-text-size-adjust:100%;
-}
+  font-variant-numeric:tabular-nums;-webkit-text-size-adjust:100%}
 .wrap{max-width:1180px;margin:0 auto;padding:20px 16px 80px}
 
-header.top{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:4px}
+header.top{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
 header.top h1{font-size:22px;font-weight:640;letter-spacing:-.01em;margin:0}
 header.top .ver{color:var(--ink-2);font-size:12px}
-.sub{color:var(--ink-2);font-size:13.5px;margin:0 0 20px;max-width:62ch}
+.sub-t{color:var(--ink-2);font-size:13.5px;margin:4px 0 18px;max-width:64ch}
 
-/* file intake */
-.intake{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
-@media(max-width:720px){.intake{grid-template-columns:1fr}}
-.drop{
-  background:var(--card);border:1px solid var(--rule);border-radius:3px;
-  padding:14px 15px;cursor:pointer;display:block;position:relative;
-}
+.intake{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.intake.three{grid-template-columns:1fr 1fr 1fr}
+@media(max-width:900px){.intake.three{grid-template-columns:1fr 1fr}}
+@media(max-width:720px){.intake,.intake.three{grid-template-columns:1fr}}
+.drop{background:var(--card);border:1px solid var(--rule);border-radius:3px;padding:14px 15px;cursor:pointer;display:block;position:relative}
 .drop:hover{border-color:var(--ink-2)}
 .drop.on{border-color:var(--good);background:var(--good-bg)}
 .drop .lab{font-weight:600;font-size:14px}
-.drop .hint{color:var(--ink-2);font-size:12.5px;margin-top:3px}
+.drop .hint{color:var(--ink-2);font-size:12.5px;margin-top:3px;display:block;word-break:break-word}
 .drop input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+#stamp{display:block;color:var(--ink-2);font-size:12px;margin-top:8px}
 
-/* controls */
 .bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:14px 0}
-button{
-  font:inherit;font-size:14px;background:var(--card);color:var(--ink);
-  border:1px solid var(--rule);border-radius:3px;padding:7px 13px;cursor:pointer;
-}
+button{font:inherit;font-size:14px;background:var(--card);color:var(--ink);border:1px solid var(--rule);border-radius:3px;padding:7px 13px;cursor:pointer}
 button:hover{border-color:var(--ink-2)}
 button:disabled{opacity:.45;cursor:default}
-button.primary{background:var(--ink);color:#fff;border-color:var(--ink)}
-button.primary:hover{background:#22303d}
 button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--w);outline-offset:1px}
 select,input[type=text]{font:inherit;font-size:14px;padding:6px 8px;border:1px solid var(--rule);border-radius:3px;background:var(--card);color:var(--ink)}
 label.inline{font-size:13.5px;color:var(--ink-2);display:flex;align-items:center;gap:6px}
+#partyCount{color:var(--ink-2);font-size:12.5px}
+#partyWrap{background:var(--card);border:1px solid var(--rule);border-radius:3px;padding:14px 16px;margin:4px 0 6px}
 
-/* tabs */
-nav.tabs{display:flex;gap:2px;border-bottom:1px solid var(--rule);margin:18px 0 0;overflow-x:auto}
-nav.tabs button{
-  border:none;border-bottom:2px solid transparent;background:none;border-radius:0;
-  padding:9px 13px;color:var(--ink-2);white-space:nowrap;font-size:14px;
-}
+nav.tabs{display:flex;gap:2px;border-bottom:1px solid var(--rule);margin-top:16px;overflow-x:auto}
+nav.tabs button{border:none;border-bottom:2px solid transparent;background:none;border-radius:0;padding:9px 13px;color:var(--ink-2);white-space:nowrap;font-size:14px}
 nav.tabs button[aria-selected=true]{color:var(--ink);border-bottom-color:var(--ink);font-weight:600}
 section.panel{display:none;padding-top:18px}
 section.panel.show{display:block}
 
-/* stat strip */
-.stats{display:flex;gap:0;flex-wrap:wrap;border:1px solid var(--rule);border-radius:3px;background:var(--card);margin:16px 0}
-.stat{padding:11px 16px;border-right:1px solid var(--rule-2);flex:1 1 auto;min-width:120px}
-.stat:last-child{border-right:none}
-.stat b{display:block;font-size:20px;font-weight:640;letter-spacing:-.01em}
-.stat span{font-size:12px;color:var(--ink-2)}
-
-/* tables */
 .tw{overflow-x:auto;border:1px solid var(--rule);border-radius:3px;background:var(--card)}
 table{border-collapse:collapse;width:100%;font-size:13.5px}
 th,td{padding:7px 11px;text-align:left;border-bottom:1px solid var(--rule-2);white-space:nowrap}
 th{position:sticky;top:0;background:var(--card);font-weight:600;font-size:12px;color:var(--ink-2);border-bottom:1px solid var(--rule);z-index:1}
 td.n,th.n{text-align:right}
 tbody tr:last-child td{border-bottom:none}
-tbody tr:hover{background:#FAFBFB}
-.grp td{background:#EDF0EF;font-weight:600;font-size:12.5px}
+tr.clik{cursor:pointer}
+tr.clik:hover{background:#FAFBFB}
+td.tw-x{width:22px;color:var(--ink-2);font-weight:600}
+tr.grp td{background:#EDF0EF;font-weight:600;font-size:12.5px}
+tr.sub-h td{background:var(--sub);font-size:11.5px;color:var(--ink-2);font-weight:600}
+tr.sub td{background:var(--sub);cursor:pointer}
+tr.sub:hover td{background:#EFF3F1}
+tr.detail td{background:var(--sub);font-size:12.5px;color:var(--ink-2);white-space:normal}
+.dk{color:var(--ink);font-weight:600;margin-left:10px}
+tr.detail td .dk:first-child{margin-left:0}
 
 .tag{display:inline-block;padding:1px 6px;border-radius:2px;font-size:11.5px;font-weight:600;line-height:1.5}
 .t-W1,.t-W2{background:var(--w-bg);color:var(--w)}
 .t-R1,.t-R2{background:var(--good-bg);color:var(--good)}
 .t-R3{background:var(--rule-2);color:var(--ink-2)}
 .full{color:var(--good);font-weight:600}
-.part{color:var(--amber);font-weight:600}
 .none{color:var(--ink-2)}
 .bal{color:var(--short);font-weight:600}
+.ready{color:var(--good);font-weight:600}
+.pend{color:var(--ink-2);font-style:italic}
 
 .note{background:var(--amber-bg);border:1px solid #E4D3A8;border-radius:3px;padding:11px 13px;font-size:13.5px;margin:14px 0}
 .note.bad{background:var(--short-bg);border-color:#E8C4B4}
 .empty{color:var(--ink-2);padding:34px 16px;text-align:center;font-size:14px;background:var(--card);border:1px solid var(--rule);border-radius:3px}
-h2.sec{font-size:16px;font-weight:640;margin:26px 0 9px}
-h2.sec:first-child{margin-top:0}
-p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:70ch}
-.rules{background:var(--card);border:1px solid var(--rule);border-radius:3px;padding:14px 16px;font-size:13.5px}
-.rules ol{margin:8px 0 0;padding-left:20px}
-.rules li{margin:4px 0}
+h2.sec{font-size:16px;font-weight:640;margin:0 0 8px}
+p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
+.chip{font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:10px;background:var(--rule-2);color:var(--ink-2)}
+.chip.live{background:var(--good-bg);color:var(--good)}
+.chip.wait{background:var(--amber-bg);color:var(--amber)}
+.chip.err{background:var(--short-bg);color:var(--short)}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 </style>
 </head>
@@ -108,62 +99,55 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:70ch}
 <div class="wrap">
 
 <header class="top">
-  <h1>Allotment</h1>
-  <span class="ver">v1.0 &middot; pending orders &rarr; stock allotment</span>
+  <h1>Pending &amp; Allotment</h1>
+  <span class="ver">v3.0</span>
+  <span class="chip" id="chip" title="Set Tracker connection">local</span>
 </header>
-<p class="sub">Drop in the two VastraApp exports. You get your usual pending-order reports, plus who gets the available stock and what stays short.</p>
+<p class="sub-t">Your two pending reports, with stock already allotted against them.</p>
 
-<div class="intake">
+<div class="intake three">
   <label class="drop" id="dropOrders">
     <span class="lab">Pending order file</span>
-    <span class="hint" id="hOrders">Design Wise Order Report &mdash; tap to choose</span>
+    <span class="hint" id="hOrders">Design Wise Order Report — tap to choose</span>
     <input type="file" id="fOrders" accept=".xlsx,.xls">
   </label>
   <label class="drop" id="dropStock">
     <span class="lab">Stock file</span>
-    <span class="hint" id="hStock">Design Wise Stock Overall Detail &mdash; tap to choose</span>
+    <span class="hint" id="hStock">Design Wise Stock Overall Detail — tap to choose</span>
     <input type="file" id="fStock" accept=".xlsx,.xls">
   </label>
+  <label class="drop" id="dropTrack">
+    <span class="lab">Set Tracker board</span>
+    <span class="hint" id="hTrack">Reads the live board — or tap for an Export JSON</span>
+    <input type="file" id="fTrack" accept=".json">
+  </label>
 </div>
+<span id="stamp"></span>
 
 <div class="bar">
   <label class="inline">Allot as
-    <select id="mode">
-      <option value="sets" selected>whole sets</option>
-      <option value="pieces">loose pieces</option>
-    </select>
+    <select id="mode"><option value="sets" selected>whole sets</option><option value="pieces">loose pieces</option></select>
   </label>
-  <label class="inline">Unassigned parties count as
-    <select id="defCat">
-      <option value="R3">R3</option><option value="R2">R2</option><option value="R1">R1</option>
-    </select>
+  <label class="inline">Unassigned parties
+    <select id="defCat"><option value="R3">R3</option><option value="R2">R2</option><option value="R1">R1</option></select>
   </label>
-  <button class="primary" id="run" disabled>Run allotment</button>
+  <button id="togParties" aria-expanded="false">Party categories</button>
+  <span id="partyCount"></span>
   <button id="exportBtn" disabled>Export to Excel</button>
-  <button id="saveCats">Save party list</button>
-  <button id="loadCats">Load party list</button>
+  <button id="clear">Clear files</button>
   <input type="file" id="fCats" accept=".json" class="sr">
 </div>
 
+<div id="partyWrap" hidden><div id="parties"></div></div>
 <div id="msg"></div>
 
 <nav class="tabs" role="tablist">
-  <button role="tab" data-p="allot" aria-selected="true">Allotment</button>
-  <button role="tab" data-p="parties" aria-selected="false">Parties</button>
+  <button role="tab" data-p="cust" aria-selected="true">Customer wise pending</button>
   <button role="tab" data-p="design" aria-selected="false">Design wise pending</button>
-  <button role="tab" data-p="cust" aria-selected="false">Customer wise pending</button>
-  <button role="tab" data-p="short" aria-selected="false">Shortfall</button>
-  <button role="tab" data-p="odd" aria-selected="false">Odd lots</button>
-  <button role="tab" data-p="rules" aria-selected="false">Rules</button>
 </nav>
 
-<section class="panel show" id="p-allot"><div class="empty">Load both files, then run the allotment.</div></section>
-<section class="panel" id="p-parties"><div class="empty">Load the pending order file to list your parties.</div></section>
-<section class="panel" id="p-design"><div class="empty">Load the pending order file.</div></section>
-<section class="panel" id="p-cust"><div class="empty">Load the pending order file.</div></section>
-<section class="panel" id="p-short"><div class="empty">Run the allotment first.</div></section>
-<section class="panel" id="p-odd"><div class="empty">Run the allotment first.</div></section>
-<section class="panel" id="p-rules"></section>
+<section class="panel show" id="p-cust"><div class="empty">Load the pending order file to see this report.</div></section>
+<section class="panel" id="p-design"><div class="empty">Load the pending order file to see this report.</div></section>
 
 </div>
 <script>
@@ -649,38 +633,202 @@ const sum = o => Object.values(o).reduce((a, b) => a + b, 0);
 /* ---------- state ---------- */
 const S = {
   orderRows: null, stockRows: null,
-  lines: [], stockMap: null, skippedStock: [], skippedOrders: [],
-  cats: {}, fullOnly: {}, names: {},   // ckey -> category / flag / display name
-  aliases: {},                          // order colour -> stock colour
-  result: null,
+  meta: { orders: '', stock: '', track: '', when: '' },
+  track: null,
+  lines: [], stockMap: null,
+  cats: {}, fullOnly: {}, names: {},
+  alloc: null, allocRows: [],
+  open: new Set(),      // expanded design rows
+  openCust: new Set(),  // expanded customer sub-rows
 };
 const CATS = ['W1', 'W2', 'R1', 'R2', 'R3'];
 
-/* persistence — works when deployed, degrades quietly in a preview sandbox */
+/* columns actually used by the engine — everything else is dropped before saving */
+const O_COLS = ['Order Number', 'Order Date', 'Design Name', 'Customer Name', 'Customer Category', 'Color', 'Size', 'Pending Qty.', 'Expected Date', 'Tag'];
+const S_COLS = ['Design Name', 'Color Name', 'Size', 'Current Stock'];
+const slim = (rows, cols) => rows.map(r => { const o = {}; for (const c of cols) o[c] = r[c]; return o; });
+
 const store = {
   get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } },
-  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } },
 };
+
+/* ----------------------------------------------------------------
+   LIVE BOARD — read-only Firestore link to Set Tracker.
+   Same project the tracker writes to. This app never writes: it
+   only attaches snapshot listeners, so nothing here can corrupt
+   production data. The JSON upload stays as an offline fallback.
+------------------------------------------------------------------ */
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyCbixluS7YL-X-7LXW0ReIw6F0VQ6R4_-w",
+  authDomain: "production-dashboard-f2313.firebaseapp.com",
+  projectId: "production-dashboard-f2313",
+  storageBucket: "production-dashboard-f2313.firebasestorage.app",
+  messagingSenderId: "30608523876",
+  appId: "1:30608523876:web:96306448836eaf0a35d571",
+};
+
+const Live = {
+  sets: null, categories: null, on: false,
+
+  chip(state, text) {
+    const c = $('#chip');
+    c.className = 'chip' + (state ? ' ' + state : '');
+    c.textContent = text;
+  },
+
+  start() {
+    if (typeof firebase === 'undefined' || !firebase.firestore) {
+      return this.chip('', 'offline board');
+    }
+    try {
+      firebase.initializeApp(FIREBASE_CONFIG);
+      const db = firebase.firestore();
+Live.start();
+      this.chip('wait', 'connecting');
+
+      db.collection('sets').onSnapshot(
+        snap => {
+          this.sets = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
+          this.on = true;
+          this.apply();
+        },
+        err => this.fail(err)
+      );
+
+      db.collection('meta').onSnapshot(
+        snap => {
+          for (const d of snap.docs) {
+            const v = d.data();
+            if (v && Array.isArray(v.categories)) this.categories = v.categories;
+          }
+          this.apply();
+        },
+        err => this.fail(err)
+      );
+    } catch (e) { this.fail(e); }
+  },
+
+  fail(err) {
+    console.warn('Set Tracker link:', err && err.message);
+    this.chip('err', 'board offline');
+  },
+
+  apply() {
+    if (!this.sets) return;
+    // categories may arrive after sets, or come from a previously loaded export
+    const cats = this.categories || (S.track && S.track.categories) || [];
+    if (!cats.length) return this.chip('wait', 'connecting');
+    SetTracker.load({ sets: this.sets, categories: cats });
+    S.liveCount = this.sets.length;
+    this.chip('live', 'board live · ' + SetTracker.index.size);
+    if (S.lines.length) { renderDesign(); renderCustomer(); }
+    paintIntake();
+  },
+};
+
+/* ----------------------------------------------------------------
+   SET TRACKER — reads the board's Export JSON.
+   A set is ready when every part its category requires is either
+   ticked off or has a date. The ready date is the latest of those
+   dates, because the set can't go out until the slowest part lands.
+   Where several lots share a pattern, the earliest one wins.
+------------------------------------------------------------------ */
+const SetTracker = {
+  raw: null, index: null,
+
+  load(json) {
+    this.raw = json;
+    const parts = {};
+    for (const c of (json.categories || [])) {
+      parts[c.id] = (c.parts || []).map(p => ({ key: p.key, label: p.label, optional: !!p.optional }));
+    }
+    const idx = new Map();
+    for (const s of (json.sets || [])) {
+      const label = String(s.pattern || '').trim();
+      const m = label.match(/^\s*(\d+)/);
+      if (!m) continue;
+      const base = m.group ? m.group(1) : m[1];
+      const sz = label.match(/\((\d+)\s*-\s*(\d+)\)/);
+      const req = parts[s.catId] || [];
+      const done = new Set(s.done || []);
+      const dates = s.dates || {};
+      const open = req.filter(p => !done.has(p.key));
+      const missing = open.filter(p => !dates[p.key] && !p.optional).map(p => p.label);
+      const known = open.map(p => dates[p.key]).filter(Boolean);
+      const lot = {
+        label, base,
+        lo: sz ? +sz[1] : null, hi: sz ? +sz[2] : null,
+        ready: open.length === 0 ? 'done' : (known.length ? known.sort().slice(-1)[0] : null),
+        missing, priority: !!s.priority,
+        openCount: open.length, totalParts: req.length,
+      };
+      if (!idx.has(base)) idx.set(base, []);
+      idx.get(base).push(lot);
+    }
+    this.index = idx;
+    return idx.size;
+  },
+
+  /* returns {state, date, label} — state is done | dated | undated | absent */
+  lookup(design, sizeLabel) {
+    if (!this.index) return { state: 'absent' };
+    const lots = this.index.get(String(design));
+    if (!lots || !lots.length) return { state: 'absent' };
+
+    let pool = lots;
+    const r = String(sizeLabel || '').match(/^(\d+)\s*-\s*(\d+)$/);
+    if (r) {
+      const lo = +r[1], hi = +r[2];
+      const exact = lots.filter(l => l.lo === lo && l.hi === hi);
+      const covers = lots.filter(l => l.lo !== null && l.lo <= lo && l.hi >= hi);
+      const untagged = lots.filter(l => l.lo === null);
+      pool = exact.length ? exact : (covers.length ? covers : (untagged.length ? untagged : lots));
+    }
+    if (pool.some(l => l.ready === 'done')) {
+      return { state: 'done', label: pool.find(l => l.ready === 'done').label };
+    }
+    const dated = pool.filter(l => l.ready).sort((a, b) => a.ready.localeCompare(b.ready));
+    if (dated.length) return { state: 'dated', date: dated[0].ready, label: dated[0].label };
+    return { state: 'undated', label: pool[0].label, missing: pool[0].missing };
+  },
+};
+
+const D_MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+function shortDate(iso) {
+  const p = String(iso).split('-');
+  if (p.length !== 3) return iso;
+  return +p[2] + ' ' + D_MON[+p[1] - 1];
+}
+
+function readyCell(design, sizeLabel) {
+  const r = SetTracker.lookup(design, sizeLabel);
+  if (r.state === 'absent') return '<span class="pend">not on board</span>';
+  if (r.state === 'done') return '<span class="ready" title="' + esc(r.label) + '">complete</span>';
+  if (r.state === 'undated') {
+    const t = r.missing && r.missing.length ? 'Waiting on: ' + r.missing.join(', ') : 'No dates set';
+    return '<span class="pend" title="' + esc(r.label + ' — ' + t) + '">no date yet</span>';
+  }
+  const late = r.date < new Date().toISOString().slice(0, 10);
+  return '<span class="' + (late ? 'bal' : 'ready') + '" title="' + esc(r.label) + '">' + shortDate(r.date) + '</span>';
+}
 
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const title = s => String(s).replace(/\b\w/g, c => c.toUpperCase());
-
-function msg(html, kind) {
-  $('#msg').innerHTML = html ? '<div class="note' + (kind === 'bad' ? ' bad' : '') + '">' + html + '</div>' : '';
-}
+const msg = (html, kind) => { $('#msg').innerHTML = html ? '<div class="note' + (kind === 'bad' ? ' bad' : '') + '">' + html + '</div>' : ''; };
 
 function readSheet(file, wanted) {
   return new Promise((res, rej) => {
     const r = new FileReader();
-    r.onerror = () => rej(new Error('Could not read ' + file.name));
+    r.onerror = () => rej(new Error('could not be read'));
     r.onload = e => {
       try {
         const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
-        let name = wb.SheetNames.find(n => n.toLowerCase() === wanted.toLowerCase());
-        if (!name) name = wb.SheetNames.find(n => n.toLowerCase().includes(wanted.toLowerCase().split(' ')[0]));
-        if (!name) name = wb.SheetNames[0];
+        let name = wb.SheetNames.find(n => n.toLowerCase() === wanted.toLowerCase())
+          || wb.SheetNames.find(n => n.toLowerCase().includes(wanted.toLowerCase().split(' ')[0]))
+          || wb.SheetNames[0];
         res({ rows: XLSX.utils.sheet_to_json(wb.Sheets[name], { defval: '', raw: false }), sheet: name });
       } catch (err) { rej(err); }
     };
@@ -688,291 +836,303 @@ function readSheet(file, wanted) {
   });
 }
 
-function need(rows, cols, what) {
-  if (!rows.length) return 'The ' + what + ' sheet is empty.';
+function missingCols(rows, cols, what) {
+  if (!rows.length) return 'The ' + what + ' sheet has no rows.';
   const have = Object.keys(rows[0]);
   const miss = cols.filter(c => !have.includes(c));
-  return miss.length ? 'The ' + what + ' file is missing: ' + miss.join(', ') + '. Found: ' + have.slice(0, 8).join(', ') + '…' : '';
+  return miss.length ? 'The ' + what + ' file is missing these columns: ' + miss.join(', ') : '';
 }
 
 /* ---------- intake ---------- */
 $('#fOrders').addEventListener('change', async e => {
   const f = e.target.files[0]; if (!f) return;
   try {
-    const { rows, sheet } = await readSheet(f, 'Input Design Pending Orders');
-    const bad = need(rows, ['Design Name', 'Customer Name', 'Color', 'Size', 'Pending Qty.'], 'pending order');
+    const { rows } = await readSheet(f, 'Input Design Pending Orders');
+    const bad = missingCols(rows, ['Design Name', 'Customer Name', 'Color', 'Size', 'Pending Qty.'], 'pending order');
     if (bad) return msg(bad, 'bad');
-    S.orderRows = rows;
-    $('#hOrders').textContent = rows.length + ' rows from “' + sheet + '”';
-    $('#dropOrders').classList.add('on');
-    buildDemand();
-  } catch (err) { msg('Could not open that file: ' + esc(err.message), 'bad'); }
+    S.orderRows = slim(rows, O_COLS);
+    S.meta.orders = f.name;
+    S.meta.when = new Date().toLocaleString();
+    S.open.clear(); S.openCust.clear();
+    save(); rebuild();
+  } catch (err) { msg('That file ' + esc(err.message || 'could not be opened') + '.', 'bad'); }
 });
 
 $('#fStock').addEventListener('change', async e => {
   const f = e.target.files[0]; if (!f) return;
   try {
-    const { rows, sheet } = await readSheet(f, 'Design Stock');
-    const bad = need(rows, ['Design Name', 'Color Name', 'Size', 'Current Stock'], 'stock');
+    const { rows } = await readSheet(f, 'Design Stock');
+    const bad = missingCols(rows, ['Design Name', 'Color Name', 'Size', 'Current Stock'], 'stock');
     if (bad) return msg(bad, 'bad');
-    S.stockRows = rows;
-    $('#hStock').textContent = rows.length + ' rows from “' + sheet + '”';
-    $('#dropStock').classList.add('on');
-    buildStock();
-  } catch (err) { msg('Could not open that file: ' + esc(err.message), 'bad'); }
+    S.stockRows = slim(rows, S_COLS);
+    S.meta.stock = f.name;
+    S.meta.when = new Date().toLocaleString();
+    save(); rebuild();
+  } catch (err) { msg('That file ' + esc(err.message || 'could not be opened') + '.', 'bad'); }
 });
 
-function buildDemand() {
-  const d = buildDemandCore(S.orderRows, { aliases: S.aliases });
-  S.lines = d.lines; S.skippedOrders = d.skipped;
-  // seed party list, keeping anything already assigned
-  const saved = store.get('allot.parties') || {};
-  for (const ln of S.lines) {
-    S.names[ln.ckey] = ln.customer;
-    if (!S.cats[ln.ckey]) {
-      if (saved[ln.ckey]) { S.cats[ln.ckey] = saved[ln.ckey].cat; S.fullOnly[ln.ckey] = saved[ln.ckey].full; }
-      else {
-        const raw = (S.orderRows.find(r => custKey(r['Customer Name']) === ln.ckey) || {})['Customer Category'] || '';
-        S.cats[ln.ckey] = /wholesal/i.test(raw) ? 'W1' : '';
-      }
-    }
-  }
-  renderParties(); renderPending(); ready();
+$('#fTrack').addEventListener('change', e => {
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = ev => {
+    try {
+      const j = JSON.parse(ev.target.result);
+      if (!j.sets) throw new Error('no sets in that file');
+      SetTracker.load(j);
+      Live.on = false;
+      S.track = j; S.meta.track = f.name;
+      save(); rebuild();
+    } catch (err) { msg('That is not a Set Tracker export.', 'bad'); }
+  };
+  r.readAsText(f);
+});
+
+/* ---------- persistence ---------- */
+function save() {
+  const ok = store.set('allot.data', { orders: S.orderRows, stock: S.stockRows, track: S.track, meta: S.meta });
+  if (!ok) msg('The files are loaded but too large to keep after a refresh. Everything still works this session.', 'bad');
+  saveParties();
 }
-
-function buildStock() {
-  const r = netStock(S.stockRows, { aliases: S.aliases, stockColumn: 'Current Stock' });
-  S.stockMap = r.stock; S.skippedStock = r.skipped;
-  ready();
-}
-
-function ready() {
-  const ok = !!(S.lines.length && S.stockMap);
-  $('#run').disabled = !ok;
-  if (ok) checkColours();
-}
-
-/* colours present in orders but absent from stock */
-function checkColours() {
-  const sc = new Set([...S.stockMap.keys()].map(k => k.split('|')[1]));
-  const missing = new Map();
-  for (const ln of S.lines) {
-    if (!S.stockMap.has(ln.design + '|' + ln.color) && !sc.has(ln.color)) {
-      missing.set(ln.color, (missing.get(ln.color) || 0) + ln.qty);
-    }
-  }
-  if (!missing.size) return msg('');
-  const list = [...missing.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
-    .map(([c, q]) => esc(title(c)) + ' (' + q + ')').join(', ');
-  msg('<b>' + missing.size + ' colours in the orders have no stock rows:</b> ' + list +
-      '. They will show as fully short. Fix the spelling in VastraApp, or map them on the Parties tab.');
-}
-
-/* ---------- parties ---------- */
-function renderParties() {
-  const keys = Object.keys(S.names).sort((a, b) => S.names[a].localeCompare(S.names[b]));
-  if (!keys.length) return;
-  const counts = {};
-  for (const ln of S.lines) counts[ln.ckey] = (counts[ln.ckey] || 0) + ln.qty;
-
-  let h = '<h2 class="sec">Party categories</h2>' +
-    '<p class="exp">W1 and W2 are your wholesalers and draw first. Set every party here — anything left blank falls to the category chosen in the toolbar. ' +
-    '“Whole order only” releases a party’s allotment back to the pool unless it covers their full line.</p>';
-  h += '<div class="bar"><label class="inline">Set all blank to <select id="bulkCat">' +
-    CATS.map(c => '<option>' + c + '</option>').join('') + '</select></label><button id="bulkGo">Apply</button></div>';
-  h += '<div class="tw"><table><thead><tr><th>Party</th><th class="n">Pending pcs</th><th>Category</th><th>Whole order only</th></tr></thead><tbody>';
-  for (const k of keys) {
-    h += '<tr><td>' + esc(S.names[k]) + '</td><td class="n">' + (counts[k] || 0) + '</td>' +
-      '<td><select data-cat="' + esc(k) + '"><option value="">—</option>' +
-      CATS.map(c => '<option' + (S.cats[k] === c ? ' selected' : '') + '>' + c + '</option>').join('') +
-      '</select></td>' +
-      '<td><input type="checkbox" data-full="' + esc(k) + '"' + (S.fullOnly[k] ? ' checked' : '') +
-      ' aria-label="Whole order only for ' + esc(S.names[k]) + '"></td></tr>';
-  }
-  h += '</tbody></table></div>';
-  $('#p-parties').innerHTML = h;
-
-  $('#p-parties').querySelectorAll('[data-cat]').forEach(el => el.addEventListener('change', e => {
-    S.cats[e.target.dataset.cat] = e.target.value; persistParties();
-  }));
-  $('#p-parties').querySelectorAll('[data-full]').forEach(el => el.addEventListener('change', e => {
-    S.fullOnly[e.target.dataset.full] = e.target.checked; persistParties();
-  }));
-  $('#bulkGo').addEventListener('click', () => {
-    const v = $('#bulkCat').value;
-    for (const k of keys) if (!S.cats[k]) S.cats[k] = v;
-    persistParties(); renderParties();
-  });
-}
-
-function persistParties() {
+function saveParties() {
   const o = {};
   for (const k of Object.keys(S.names)) o[k] = { cat: S.cats[k] || '', full: !!S.fullOnly[k], name: S.names[k] };
   store.set('allot.parties', o);
 }
-
-/* ---------- the two pending reports ---------- */
-function renderPending() {
-  const dw = designWiseReport(S.lines);
-  let h = '<h2 class="sec">Design wise pending orders</h2><p class="exp">' + dw.length +
-    ' rows, ' + dw.reduce((t, r) => t + r.qty, 0) + ' pieces pending.</p>';
-  h += '<div class="tw"><table><thead><tr><th>Design</th><th>Colour</th><th>Size</th><th class="n">Pending qty</th></tr></thead><tbody>';
-  for (const r of dw) h += '<tr><td>DES-' + esc(r.design) + '</td><td>' + esc(title(r.color)) + '</td><td>' + esc(r.size) + '</td><td class="n">' + r.qty + '</td></tr>';
-  $('#p-design').innerHTML = h + '</tbody></table></div>';
-
-  const cw = customerWiseReport(S.lines);
-  let c = '<h2 class="sec">Customer wise pending orders</h2><p class="exp">' + cw.length + ' rows across ' +
-    new Set(cw.map(r => r.customer)).size + ' parties.</p>';
-  c += '<div class="tw"><table><thead><tr><th>Customer</th><th>Design</th><th>Colour</th><th>Size</th><th class="n">Pending qty</th></tr></thead><tbody>';
-  let last = null;
-  for (const r of cw) {
-    if (r.customer !== last) { c += '<tr class="grp"><td colspan="5">' + esc(r.customer) + '</td></tr>'; last = r.customer; }
-    c += '<tr><td></td><td>DES-' + esc(r.design) + '</td><td>' + esc(title(r.color)) + '</td><td>' + esc(r.size) + '</td><td class="n">' + r.qty + '</td></tr>';
+function restore() {
+  const p = store.get('allot.parties');
+  if (p) for (const k of Object.keys(p)) { S.cats[k] = p[k].cat; S.fullOnly[k] = !!p[k].full; S.names[k] = p[k].name || k; }
+  const d = store.get('allot.data');
+  if (d) {
+    if (d.orders) { S.orderRows = d.orders; S.stockRows = d.stock; }
+    if (d.track) { S.track = d.track; SetTracker.load(d.track); }
+    S.meta = d.meta || S.meta;
   }
-  $('#p-cust').innerHTML = c + '</tbody></table></div>';
+  rebuild();
 }
 
-/* ---------- run ---------- */
-$('#run').addEventListener('click', () => {
-  const defCat = $('#defCat').value;
+/* ---------- pipeline ---------- */
+function rebuild() {
+  paintIntake();
+  if (!S.orderRows) { paintEmpty(); return; }
+
+  const d = buildDemandCore(S.orderRows, {});
+  S.lines = d.lines;
+  for (const ln of S.lines) {
+    S.names[ln.ckey] = ln.customer;
+    if (S.cats[ln.ckey] === undefined || S.cats[ln.ckey] === null) {
+      const raw = (S.orderRows.find(r => custKey(r['Customer Name']) === ln.ckey) || {})['Customer Category'] || '';
+      S.cats[ln.ckey] = /wholesal/i.test(raw) ? 'W1' : '';
+    }
+  }
+
+  S.stockMap = S.stockRows ? netStock(S.stockRows, { stockColumn: 'Current Stock' }).stock : new Map();
+
   const cats = {};
   for (const k of Object.keys(S.cats)) if (S.cats[k]) cats[k] = S.cats[k];
-  const opts = { categories: cats, defaultCategory: defCat };
+  const defCat = $('#defCat').value;
   const r = $('#mode').value === 'sets'
-    ? allocateSets(S.lines, S.stockMap, opts)
-    : allocate(S.lines, S.stockMap, opts);
-  const released = enforceFullOnly(S.lines, r.alloc, S.fullOnly);
-  S.result = { ...r, released, cats, defCat };
+    ? allocateSets(S.lines, S.stockMap, { categories: cats, defaultCategory: defCat })
+    : allocate(S.lines, S.stockMap, { categories: cats, defaultCategory: defCat });
+  enforceFullOnly(S.lines, r.alloc, S.fullOnly);
+  S.alloc = r.alloc;
+  S.allocRows = allocationRows(S.lines, r.alloc, cats, defCat);
+  S.catOf = cats; S.defCat = defCat;
+
+  renderDesign(); renderCustomer(); renderParties();
   $('#exportBtn').disabled = false;
-  renderAllot(); renderShort(); renderOdd();
-});
-
-function rows() { return allocationRows(S.lines, S.result.alloc, S.result.cats, S.result.defCat); }
-
-function renderAllot() {
-  const rs = rows().filter(r => r.allocated > 0)
-    .sort((a, b) => CATS.indexOf(a.category) - CATS.indexOf(b.category) || a.customer.localeCompare(b.customer)
-      || a.design.localeCompare(b.design, undefined, { numeric: true }));
-  const all = rows();
-  const ordered = all.reduce((t, r) => t + r.ordered, 0);
-  const alloted = all.reduce((t, r) => t + r.allocated, 0);
-  const fully = all.filter(r => r.allocated === r.ordered).length;
-
-  let h = '<div class="stats">' +
-    stat(alloted, 'pieces allotted') +
-    stat(ordered - alloted, 'pieces short') +
-    stat(fully + ' / ' + all.length, 'lines fully covered') +
-    stat(new Set(rs.map(r => r.customer)).size, 'parties getting stock') +
-    stat(S.result.stats.blockedByShape || 0, 'stranded in odd sizes') +
-    '</div>';
-
-  if (S.result.released.length) {
-    h += '<div class="note">' + S.result.released.length + ' allotment(s) released because the party takes whole orders only. ' +
-      'That stock is not reserved &mdash; run again after changing the flag if you want it placed.</div>';
-  }
-  if (!rs.length) { $('#p-allot').innerHTML = h + '<div class="empty">Nothing could be allotted from this stock file.</div>'; return; }
-
-  h += '<h2 class="sec">Who gets what</h2><p class="exp">Sizes shown are the actual ranges being reserved, not the ordered range.</p>';
-  h += '<div class="tw"><table><thead><tr><th>Party</th><th>Cat</th><th>Design</th><th>Colour</th><th>Ordered</th><th class="n">Qty</th><th>Allot sizes</th><th class="n">Allotted</th><th class="n">Balance</th></tr></thead><tbody>';
-  let last = null;
-  for (const r of rs) {
-    if (r.customer !== last) { h += '<tr class="grp"><td colspan="9">' + esc(r.customer) + ' <span class="tag t-' + r.category + '">' + r.category + '</span></td></tr>'; last = r.customer; }
-    h += '<tr><td></td><td><span class="tag t-' + r.category + '">' + r.category + '</span></td>' +
-      '<td>DES-' + esc(r.design) + '</td><td>' + esc(title(r.color)) + '</td><td>' + esc(r.size) + '</td>' +
-      '<td class="n">' + r.ordered + '</td>' +
-      '<td>' + r.ranges.map(x => esc(x.size) + '&times;' + x.pieces).join(', ') + '</td>' +
-      '<td class="n ' + (r.allocated === r.ordered ? 'full' : 'part') + '">' + r.allocated + '</td>' +
-      '<td class="n ' + (r.balance ? 'bal' : 'none') + '">' + (r.balance || '—') + '</td></tr>';
-  }
-  $('#p-allot').innerHTML = h + '</tbody></table></div>';
+  checkColours();
 }
 
-function stat(v, l) { return '<div class="stat"><b>' + v + '</b><span>' + l + '</span></div>'; }
-
-function renderShort() {
-  const rs = rows().filter(r => r.balance > 0)
-    .sort((a, b) => b.balance - a.balance);
-  let h = '<h2 class="sec">Shortfall</h2><p class="exp">' + rs.length + ' order lines still uncovered, ' +
-    rs.reduce((t, r) => t + r.balance, 0) + ' pieces. These are the lines that need a production date from Set Tracker.</p>';
-  if (!rs.length) { $('#p-short').innerHTML = h + '<div class="empty">Every line is fully covered.</div>'; return; }
-  h += '<div class="tw"><table><thead><tr><th>Design</th><th>Colour</th><th>Size</th><th>Party</th><th>Cat</th><th>Order</th><th>Order date</th><th class="n">Ordered</th><th class="n">Allotted</th><th class="n">Short</th></tr></thead><tbody>';
-  for (const r of rs) {
-    h += '<tr><td>DES-' + esc(r.design) + '</td><td>' + esc(title(r.color)) + '</td><td>' + esc(r.size) + '</td>' +
-      '<td>' + esc(r.customer) + '</td><td><span class="tag t-' + r.category + '">' + r.category + '</span></td>' +
-      '<td>' + esc(r.order) + '</td><td>' + esc(r.date) + '</td>' +
-      '<td class="n">' + r.ordered + '</td><td class="n">' + r.allocated + '</td><td class="n bal">' + r.balance + '</td></tr>';
-  }
-  $('#p-short').innerHTML = h + '</tbody></table></div>';
+function paintIntake() {
+  $('#hOrders').textContent = S.orderRows ? S.orderRows.length + ' order rows · ' + (S.meta.orders || 'loaded') : 'Design Wise Order Report — tap to choose';
+  $('#dropOrders').classList.toggle('on', !!S.orderRows);
+  $('#hStock').textContent = S.stockRows ? S.stockRows.length + ' stock rows · ' + (S.meta.stock || 'loaded') : 'Design Wise Stock Overall Detail — tap to choose';
+  $('#dropStock').classList.toggle('on', !!S.stockRows);
+  const n = SetTracker.index ? SetTracker.index.size : 0;
+  $('#hTrack').textContent = n
+    ? n + ' patterns · ' + (Live.on ? 'live from the board' : (S.meta.track || 'from file'))
+    : 'Reads the live board — or tap for an Export JSON';
+  $('#dropTrack').classList.toggle('on', !!n);
+  $('#stamp').textContent = S.meta.when ? 'Loaded ' + S.meta.when + ' · kept until you load new files' : '';
 }
 
-function renderOdd() {
-  // stock left over per design+colour after allotment
-  const used = new Map();
+function paintEmpty() {
+  $('#p-cust').innerHTML = '<div class="empty">Load the pending order file to see this report.</div>';
+  $('#p-design').innerHTML = '<div class="empty">Load the pending order file to see this report.</div>';
+}
+
+function checkColours() {
+  if (!S.stockRows) return msg('Stock file not loaded — the reports are showing, but allotted quantities will all read zero.');
+  const sc = new Set([...S.stockMap.keys()].map(k => k.split('|')[1]));
+  const missing = new Map();
   for (const ln of S.lines) {
-    const a = S.result.alloc.get(ln.id); if (!a) continue;
-    for (const s of Object.keys(a)) {
-      const k = ln.design + '|' + ln.color;
-      if (!used.has(k)) used.set(k, {});
-      used.get(k)[s] = (used.get(k)[s] || 0) + a[s];
-    }
+    if (!S.stockMap.has(ln.design + '|' + ln.color) && !sc.has(ln.color)) missing.set(ln.color, (missing.get(ln.color) || 0) + ln.qty);
   }
-  const demanded = new Set(S.lines.map(l => l.design + '|' + l.color));
-  const out = [];
-  for (const [k, bucket] of S.stockMap) {
-    const u = used.get(k) || {};
-    const leftover = {};
-    let n = 0;
-    for (const s of Object.keys(bucket)) {
-      const v = bucket[s] - (u[s] || 0);
-      if (v > 0) { leftover[s] = v; n += v; }
-    }
-    if (!n || !demanded.has(k)) continue;
-    out.push({ design: k.split('|')[0], color: k.split('|')[1], pieces: n, ranges: toRanges(leftover) });
-  }
-  out.sort((a, b) => b.pieces - a.pieces);
-  let h = '<h2 class="sec">Odd lots</h2><p class="exp">Stock on designs that have open orders, but in size shapes no pending order can absorb as a whole set. ' +
-    'This is where broken inventory hides &mdash; worth pairing with a top-up production or a rate-wise clearance.</p>';
-  if (!out.length) { $('#p-odd').innerHTML = h + '<div class="empty">No odd lots left over.</div>'; return; }
-  h += '<div class="tw"><table><thead><tr><th>Design</th><th>Colour</th><th class="n">Pieces</th><th>Sizes left</th></tr></thead><tbody>';
-  for (const r of out) h += '<tr><td>DES-' + esc(r.design) + '</td><td>' + esc(title(r.color)) + '</td><td class="n">' + r.pieces + '</td><td>' + r.ranges.map(x => esc(x.size) + '&times;' + x.pieces).join(', ') + '</td></tr>';
-  $('#p-odd').innerHTML = h + '</tbody></table></div>';
+  if (!missing.size) return msg('');
+  const list = [...missing.entries()].sort((a, b) => b[1] - a[1]).map(([c, q]) => esc(title(c)) + ' (' + q + ')').join(', ');
+  msg('<b>' + missing.size + ' colour' + (missing.size > 1 ? 's' : '') + ' in the orders have no stock rows:</b> ' + list + '. Those lines show as fully short until the spelling matches VastraApp.');
 }
 
-/* ---------- export ---------- */
-$('#exportBtn').addEventListener('click', () => {
-  const wb = XLSX.utils.book_new();
-  const rs = rows();
-  const A = rs.filter(r => r.allocated > 0).map(r => ({
-    'Customer Name': r.customer, 'Category': r.category, 'Design Name': 'DES-' + r.design,
-    'Color': title(r.color), 'Ordered Size': r.size, 'Order Qty': r.ordered,
-    'Allot Sizes': r.ranges.map(x => x.size + ' x ' + x.pieces).join(', '),
-    'Allotted': r.allocated, 'Balance': r.balance, 'Order Number': r.order, 'Order Date': r.date,
-  }));
-  const B = rs.filter(r => r.balance > 0).map(r => ({
-    'Design Name': 'DES-' + r.design, 'Color': title(r.color), 'Size': r.size,
-    'Customer Name': r.customer, 'Category': r.category, 'Order Number': r.order,
-    'Order Date': r.date, 'Ordered': r.ordered, 'Allotted': r.allocated, 'Short': r.balance,
-  }));
-  const C = designWiseReport(S.lines).map(r => ({ 'Design Name': 'DES-' + r.design, 'Color': title(r.color), 'Size': r.size, 'Pending Qty.': r.qty }));
-  const D = customerWiseReport(S.lines).map(r => ({ 'Customer Name': r.customer, 'Design Name': 'DES-' + r.design, 'Color': title(r.color), 'Size': r.size, 'Pending Qty.': r.qty }));
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(A), 'Allotment');
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(B), 'Shortfall');
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(C), 'Design Wise Pending');
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(D), 'Customer Wise Pending');
-  const d = new Date().toISOString().slice(0, 10);
-  XLSX.writeFile(wb, 'Allotment-' + d + '.xlsx');
-});
+/* ---------- design wise, with drill-down ---------- */
+function designWiseRows() {
+  const map = new Map();
+  for (const ln of S.lines) {
+    const key = ln.design + '|' + ln.color + '|' + ln.sizeLabel;
+    if (!map.has(key)) map.set(key, { key, design: ln.design, color: ln.color, size: ln.sizeLabel, qty: 0, allotted: 0, lines: [] });
+    const g = map.get(key);
+    g.qty += ln.qty;
+    g.lines.push(ln);
+  }
+  for (const r of S.allocRows) {
+    const g = map.get(r.design + '|' + r.color + '|' + r.size);
+    if (g) g.allotted += r.allocated;
+  }
+  return [...map.values()].sort((a, b) =>
+    a.design.localeCompare(b.design, undefined, { numeric: true })
+    || a.color.localeCompare(b.color)
+    || String(a.size).localeCompare(String(b.size), undefined, { numeric: true }));
+}
 
-/* party list export / import */
-$('#saveCats').addEventListener('click', () => {
-  const o = {};
-  for (const k of Object.keys(S.names)) o[k] = { cat: S.cats[k] || '', full: !!S.fullOnly[k], name: S.names[k] };
-  const blob = new Blob([JSON.stringify(o, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob); a.download = 'party-categories.json'; a.click();
-  URL.revokeObjectURL(a.href);
-});
-$('#loadCats').addEventListener('click', () => $('#fCats').click());
+/* short rows with nothing on the production board — the real blind spot */
+function boardGap(rows) {
+  if (!SetTracker.index) return '';
+  const gaps = rows.filter(r => r.qty > r.allotted && SetTracker.lookup(r.design, r.size).state === 'absent');
+  if (!gaps.length) return '';
+  const pcs = gaps.reduce((t, r) => t + (r.qty - r.allotted), 0);
+  return '<div class="note"><b>' + gaps.length + ' short rows have no lot on the board</b> — ' + pcs +
+    ' pieces are owed with nothing in production against them.</div>';
+}
+
+function renderDesign() {
+  const rows = designWiseRows();
+  let h = '<h2 class="sec">Design wise pending orders</h2>' +
+    '<p class="exp">' + rows.length + ' rows · ' + rows.reduce((t, r) => t + r.qty, 0) + ' pieces pending · ' +
+    rows.reduce((t, r) => t + r.allotted, 0) + ' allotted. Tap any row for the parties behind it.</p>' + boardGap(rows);
+  h += '<div class="tw"><table><thead><tr><th></th><th>Design</th><th>Colour</th><th>Size</th><th class="n">Pending qty</th><th class="n">Allotted</th><th class="n">Short</th></tr></thead><tbody>';
+  for (const r of rows) {
+    const open = S.open.has(r.key);
+    const short = r.qty - r.allotted;
+    h += '<tr class="clik" data-k="' + esc(r.key) + '"><td class="tw-x">' + (open ? '&minus;' : '+') + '</td>' +
+      '<td>DES-' + esc(r.design) + '</td><td>' + esc(title(r.color)) + '</td><td>' + esc(r.size) + '</td>' +
+      '<td class="n">' + r.qty + '</td>' +
+      '<td class="n ' + (r.allotted ? 'full' : 'none') + '">' + (r.allotted || '—') + '</td>' +
+      '<td class="n ' + (short ? 'bal' : 'none') + '">' + (short || '—') + '</td></tr>';
+    if (open) h += drillRows(r);
+  }
+  $('#p-design').innerHTML = h + '</tbody></table></div>';
+  $('#p-design').querySelectorAll('tr.clik').forEach(tr => tr.addEventListener('click', () => {
+    const k = tr.dataset.k;
+    S.open.has(k) ? S.open.delete(k) : S.open.add(k);
+    renderDesign();
+  }));
+  $('#p-design').querySelectorAll('tr.clik2').forEach(tr => tr.addEventListener('click', e => {
+    e.stopPropagation();
+    const k = tr.dataset.k;
+    S.openCust.has(k) ? S.openCust.delete(k) : S.openCust.add(k);
+    renderDesign();
+  }));
+}
+
+function drillRows(g) {
+  const byLine = new Map(S.allocRows.map(r => [r.lineId, r]));
+  const kids = g.lines.map(ln => byLine.get(ln.id)).filter(Boolean)
+    .sort((a, b) => CATS.indexOf(a.category) - CATS.indexOf(b.category) || b.ordered - a.ordered);
+  let h = '<tr class="sub-h"><td></td><td colspan="6">Parties ordering DES-' + esc(g.design) + ' · ' + esc(title(g.color)) + ' · ' + esc(g.size) + '</td></tr>';
+  for (const k of kids) {
+    const ck = g.key + '::' + k.lineId;
+    const open = S.openCust.has(ck);
+    h += '<tr class="sub clik2" data-k="' + esc(ck) + '"><td></td>' +
+      '<td colspan="2">' + esc(k.customer) + '</td>' +
+      '<td><span class="tag t-' + k.category + '">' + k.category + '</span></td>' +
+      '<td class="n">' + k.ordered + '</td>' +
+      '<td class="n ' + (k.allocated ? 'full' : 'none') + '">' + (k.allocated || '—') + '</td>' +
+      '<td class="n ' + (k.balance ? 'bal' : 'none') + '">' + (k.balance || '—') + '</td></tr>';
+    if (open) {
+      h += '<tr class="detail"><td></td><td colspan="6">' +
+        '<span class="dk">Order</span> ' + esc(k.order || '—') +
+        ' <span class="dk">Dated</span> ' + esc(k.date || '—') +
+        (k.ranges.length ? ' <span class="dk">Sizes reserved</span> ' + k.ranges.map(x => esc(x.size) + '&times;' + x.pieces).join(', ') : '') +
+        (k.balance ? ' <span class="dk">Balance arrives</span> ' + readyCell(g.design, g.size) : ' <span class="dk">Ready to dispatch from stock</span>') +
+        '</td></tr>';
+    }
+  }
+  return h;
+}
+
+/* ---------- customer wise ---------- */
+function renderCustomer() {
+  const map = new Map();
+  for (const ln of S.lines) {
+    const key = ln.ckey + '|' + ln.design + '|' + ln.color + '|' + ln.sizeLabel;
+    if (!map.has(key)) map.set(key, { customer: ln.customer, ckey: ln.ckey, design: ln.design, color: ln.color, size: ln.sizeLabel, qty: 0 });
+    map.get(key).qty += ln.qty;
+  }
+  const rows = [...map.values()].sort((a, b) => a.customer.localeCompare(b.customer)
+    || a.design.localeCompare(b.design, undefined, { numeric: true })
+    || a.color.localeCompare(b.color)
+    || String(a.size).localeCompare(String(b.size), undefined, { numeric: true }));
+
+  let h = '<h2 class="sec">Customer wise pending orders</h2>' +
+    '<p class="exp">' + rows.length + ' rows across ' + new Set(rows.map(r => r.ckey)).size + ' parties. ' +
+    'Ready date comes from Set Tracker once the two are linked.</p>';
+  h += '<div class="tw"><table><thead><tr><th>Customer</th><th>Design</th><th>Colour</th><th>Size</th><th class="n">Pending qty</th><th>Ready date</th></tr></thead><tbody>';
+  let last = null;
+  for (const r of rows) {
+    if (r.customer !== last) {
+      h += '<tr class="grp"><td colspan="6">' + esc(r.customer) +
+        (S.cats[r.ckey] ? ' <span class="tag t-' + S.cats[r.ckey] + '">' + S.cats[r.ckey] + '</span>' : '') + '</td></tr>';
+      last = r.customer;
+    }
+    h += '<tr><td></td><td>DES-' + esc(r.design) + '</td><td>' + esc(title(r.color)) + '</td><td>' + esc(r.size) + '</td>' +
+      '<td class="n">' + r.qty + '</td><td>' + readyCell(r.design, r.size) + '</td></tr>';
+  }
+  $('#p-cust').innerHTML = h + '</tbody></table></div>';
+}
+
+/* ---------- parties drawer ---------- */
+function renderParties() {
+  const keys = Object.keys(S.names).sort((a, b) => S.names[a].localeCompare(S.names[b]));
+  const counts = {};
+  for (const ln of S.lines) counts[ln.ckey] = (counts[ln.ckey] || 0) + ln.qty;
+  const unset = keys.filter(k => !S.cats[k]).length;
+  $('#partyCount').textContent = keys.length ? keys.length + ' parties' + (unset ? ', ' + unset + ' unset' : '') : '';
+
+  let h = '<p class="exp">W1 and W2 draw first. Blank parties fall to the category chosen above. ' +
+    '“Whole order only” releases an allotment unless it covers the full line.</p>' +
+    '<div class="bar"><label class="inline">Set all blank to <select id="bulkCat">' +
+    CATS.map(c => '<option>' + c + '</option>').join('') + '</select></label>' +
+    '<button id="bulkGo">Apply</button><button id="saveCats">Save list</button><button id="loadCats">Load list</button></div>' +
+    '<div class="tw" style="max-height:340px;overflow:auto"><table><thead><tr><th>Party</th><th class="n">Pending</th><th>Category</th><th>Whole order only</th></tr></thead><tbody>';
+  for (const k of keys) {
+    h += '<tr><td>' + esc(S.names[k]) + '</td><td class="n">' + (counts[k] || 0) + '</td>' +
+      '<td><select data-cat="' + esc(k) + '"><option value="">—</option>' +
+      CATS.map(c => '<option' + (S.cats[k] === c ? ' selected' : '') + '>' + c + '</option>').join('') + '</select></td>' +
+      '<td><input type="checkbox" data-full="' + esc(k) + '"' + (S.fullOnly[k] ? ' checked' : '') +
+      ' aria-label="Whole order only for ' + esc(S.names[k]) + '"></td></tr>';
+  }
+  $('#parties').innerHTML = h + '</tbody></table></div>';
+
+  $('#parties').querySelectorAll('[data-cat]').forEach(el => el.addEventListener('change', e => {
+    S.cats[e.target.dataset.cat] = e.target.value; saveParties(); rebuild();
+  }));
+  $('#parties').querySelectorAll('[data-full]').forEach(el => el.addEventListener('change', e => {
+    S.fullOnly[e.target.dataset.full] = e.target.checked; saveParties(); rebuild();
+  }));
+  $('#bulkGo').addEventListener('click', () => {
+    const v = $('#bulkCat').value;
+    for (const k of keys) if (!S.cats[k]) S.cats[k] = v;
+    saveParties(); rebuild();
+  });
+  $('#saveCats').addEventListener('click', () => {
+    const o = {};
+    for (const k of Object.keys(S.names)) o[k] = { cat: S.cats[k] || '', full: !!S.fullOnly[k], name: S.names[k] };
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(o, null, 2)], { type: 'application/json' }));
+    a.download = 'party-categories.json'; a.click(); URL.revokeObjectURL(a.href);
+  });
+  $('#loadCats').addEventListener('click', () => $('#fCats').click());
+}
+
 $('#fCats').addEventListener('change', e => {
   const f = e.target.files[0]; if (!f) return;
   const r = new FileReader();
@@ -980,38 +1140,58 @@ $('#fCats').addEventListener('change', e => {
     try {
       const o = JSON.parse(ev.target.result);
       for (const k of Object.keys(o)) { S.cats[k] = o[k].cat; S.fullOnly[k] = !!o[k].full; if (!S.names[k]) S.names[k] = o[k].name || k; }
-      persistParties(); renderParties();
-      msg('Party list loaded — ' + Object.keys(o).length + ' parties.');
+      saveParties(); rebuild();
     } catch (err) { msg('That file is not a saved party list.', 'bad'); }
   };
   r.readAsText(f);
 });
 
-/* ---------- tabs ---------- */
+/* ---------- export ---------- */
+$('#exportBtn').addEventListener('click', () => {
+  const wb = XLSX.utils.book_new();
+  const dw = designWiseRows().map(r => ({
+    'Design Name': 'DES-' + r.design, 'Color': title(r.color), 'Size': r.size,
+    'Pending Qty.': r.qty, 'Allotted': r.allotted, 'Short': r.qty - r.allotted,
+  }));
+  const cw = [];
+  for (const r of S.allocRows) cw.push({
+    'Customer Name': r.customer, 'Category': r.category, 'Design Name': 'DES-' + r.design,
+    'Color': title(r.color), 'Size': r.size, 'Pending Qty.': r.ordered,
+    'Allotted': r.allocated, 'Balance': r.balance,
+    'Allot Sizes': r.ranges.map(x => x.size + ' x ' + x.pieces).join(', '),
+    'Ready Date': (function(){ const t = SetTracker.lookup(r.design, r.size); return t.state === 'dated' ? t.date : (t.state === 'done' ? 'complete' : ''); })(),
+    'Lot': (SetTracker.lookup(r.design, r.size).label || ''),
+  });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(dw), 'Design Wise Pending');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(cw), 'Customer Wise Pending');
+  XLSX.writeFile(wb, 'Pending-Allotment-' + new Date().toISOString().slice(0, 10) + '.xlsx');
+});
+
+/* ---------- chrome ---------- */
 document.querySelectorAll('nav.tabs button').forEach(b => b.addEventListener('click', () => {
   document.querySelectorAll('nav.tabs button').forEach(x => x.setAttribute('aria-selected', x === b));
   document.querySelectorAll('section.panel').forEach(p => p.classList.toggle('show', p.id === 'p-' + b.dataset.p));
 }));
+$('#togParties').addEventListener('click', () => {
+  const d = $('#partyWrap');
+  const open = d.hasAttribute('hidden');
+  open ? d.removeAttribute('hidden') : d.setAttribute('hidden', '');
+  $('#togParties').setAttribute('aria-expanded', open);
+});
+$('#mode').addEventListener('change', rebuild);
+$('#defCat').addEventListener('change', rebuild);
+$('#clear').addEventListener('click', () => {
+  if (!confirm('Clear the loaded files? Party categories are kept.')) return;
+  S.orderRows = S.stockRows = null; S.lines = []; S.allocRows = [];
+  S.track = null; SetTracker.raw = null; SetTracker.index = null;
+  S.meta = { orders: '', stock: '', track: '', when: '' };
+  store.set('allot.data', null);
+  $('#exportBtn').disabled = true;
+  msg(''); rebuild();
+});
 
-/* ---------- rules panel ---------- */
-$('#p-rules').innerHTML =
-  '<h2 class="sec">How stock is split</h2>' +
-  '<div class="rules">Applied per design and colour, on the netted Current Stock figure.' +
-  '<ol>' +
-  '<li>Negative stock rows are netted against positive ones first. A row like 0-10 = 22 spreads as 2 pieces per size; 0-5 = &minus;6 takes 1 back off each of those sizes.</li>' +
-  '<li>Retail keeps a floor of 25%. Wholesale (W1 then W2) draws from the rest, up to a ceiling of 75%.</li>' +
-  '<li>What remains splits half to R1, half to R2. Odd pieces carry forward across sizes so neither is short-changed by rounding.</li>' +
-  '<li>Anything still unplaced cascades W1 &rarr; W2 &rarr; R1 &rarr; R2 &rarr; R3, then sweeps again so no stock sits idle while demand is open.</li>' +
-  '<li>When stock is too thin for every category with demand to take at least one whole set, the percentages are skipped and priority order decides outright.</li>' +
-  '<li>Within a category, the oldest order date is served first.</li>' +
-  '</ol></div>' +
-  '<h2 class="sec">R3 is provisional</h2><p class="exp">Nothing here is committed. Re-run with a newer pending order file and stock will re-flow to whoever now has the demand, including pulling back from R3.</p>';
-
-/* restore saved party list on load */
-(function () {
-  const saved = store.get('allot.parties');
-  if (saved) for (const k of Object.keys(saved)) { S.cats[k] = saved[k].cat; S.fullOnly[k] = !!saved[k].full; S.names[k] = saved[k].name || k; }
-})();
+restore();
+Live.start();
 
 </script>
 </body>
