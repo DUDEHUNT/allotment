@@ -29,7 +29,7 @@ header.top .ver{color:var(--ink-2);font-size:12px}
 .sub-t{color:var(--ink-2);font-size:13.5px;margin:4px 0 18px;max-width:64ch}
 
 .intake{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.intake.three{grid-template-columns:1fr 1fr 1fr}
+.intake.three{grid-template-columns:1fr 1fr}
 @media(max-width:900px){.intake.three{grid-template-columns:1fr 1fr}}
 @media(max-width:720px){.intake,.intake.three{grid-template-columns:1fr}}
 .drop{background:var(--card);border:1px solid var(--rule);border-radius:3px;padding:14px 15px;cursor:pointer;display:block;position:relative}
@@ -56,19 +56,22 @@ nav.tabs button[aria-selected=true]{color:var(--ink);border-bottom-color:var(--i
 section.panel{display:none;padding-top:18px}
 section.panel.show{display:block}
 
-.tw{overflow-x:auto;border:1px solid var(--rule);border-radius:3px;background:var(--card)}
+.tw{overflow-x:auto;border:1px solid var(--rule);border-radius:3px;background:var(--card);
+  touch-action:pan-x;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch;contain:content}
+.tw.vscroll{touch-action:auto;overscroll-behavior:contain}
 table{border-collapse:collapse;width:100%;font-size:13.5px}
 th,td{padding:7px 11px;text-align:left;border-bottom:1px solid var(--rule-2);white-space:nowrap}
-th{position:sticky;top:0;background:var(--card);font-weight:600;font-size:12px;color:var(--ink-2);border-bottom:1px solid var(--rule);z-index:1}
+th{background:var(--card);font-weight:600;font-size:12px;color:var(--ink-2);border-bottom:1px solid var(--rule)}
+@media(hover:hover) and (min-width:820px){th{position:sticky;top:0;z-index:1}}
 td.n,th.n{text-align:right}
 tbody tr:last-child td{border-bottom:none}
 tr.clik{cursor:pointer}
-tr.clik:hover{background:#FAFBFB}
+@media(hover:hover){tr.clik:hover{background:#FAFBFB}}
 td.tw-x{width:22px;color:var(--ink-2);font-weight:600}
 tr.grp td{background:#EDF0EF;font-weight:600;font-size:12.5px}
 tr.sub-h td{background:var(--sub);font-size:11.5px;color:var(--ink-2);font-weight:600}
 tr.sub td{background:var(--sub);cursor:pointer}
-tr.sub:hover td{background:#EFF3F1}
+@media(hover:hover){tr.sub:hover td{background:#EFF3F1}}
 tr.detail td{background:var(--sub);font-size:12.5px;color:var(--ink-2);white-space:normal}
 .dk{color:var(--ink);font-weight:600;margin-left:10px}
 tr.detail td .dk:first-child{margin-left:0}
@@ -85,6 +88,7 @@ tr.detail td .dk:first-child{margin-left:0}
 
 .note{background:var(--amber-bg);border:1px solid #E4D3A8;border-radius:3px;padding:11px 13px;font-size:13.5px;margin:14px 0}
 .note.bad{background:var(--short-bg);border-color:#E8C4B4}
+.more{display:block;width:100%;margin:10px 0 0;padding:10px;text-align:center}
 .empty{color:var(--ink-2);padding:34px 16px;text-align:center;font-size:14px;background:var(--card);border:1px solid var(--rule);border-radius:3px}
 h2.sec{font-size:16px;font-weight:640;margin:0 0 8px}
 p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
@@ -104,7 +108,7 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
 
 <header class="top">
   <h1>Pending &amp; Allotment</h1>
-  <span class="ver">v3.2</span>
+  <span class="ver">v3.1</span>
   <span class="chip" id="chip" title="Set Tracker connection">local</span>
 </header>
 <p class="sub-t">Your two pending reports, with stock already allotted against them.</p>
@@ -119,6 +123,11 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
     <span class="lab">Stock file</span>
     <span class="hint" id="hStock">Design Wise Stock Overall Detail — tap to choose</span>
     <input type="file" id="fStock" accept=".xlsx,.xls">
+  </label>
+  <label class="drop" id="dropPurch">
+    <span class="lab">Purchase inward</span>
+    <span class="hint" id="hPurch">Purchase export — tells the app what is cut but unfinished</span>
+    <input type="file" id="fPurch" accept=".xlsx,.xls">
   </label>
   <label class="drop" id="dropTrack">
     <span class="lab">Set Tracker board</span>
@@ -637,15 +646,132 @@ function allocateSets(lines, stockMap, opts = {}) {
 const sum = o => Object.values(o).reduce((a, b) => a + b, 0);
 
 
+/* ----------------------------------------------------------------
+   LOT LEDGER
+   Purchase entries are made at cutting, so Current Stock counts
+   fabric that isn't a sellable set yet. Any lot with open stages on
+   the board is work in progress: its purchase quantity is subtracted
+   from stock and re-published as an arrival on the board's date.
+------------------------------------------------------------------ */
+
+/* "1219 - 9 (Washing)" -> "1219-9"   "1306 (0-3)" -> "1306" */
+function lotId(label) {
+  return String(label || '').replace(/\(.*$/, '').trim().replace(/\s*-\s*/g, '-');
+}
+
+const Lots = {
+  wip: null,        // "design|color" -> {size: pieces still being made}
+  arrivals: null,   // "design|color|size" -> [{lot, pieces, due}]
+  openLots: [],
+  unmatched: [],
+
+  build(purchaseRows, tracker, aliases) {
+    this.wip = new Map();
+    this.arrivals = new Map();
+    this.openLots = [];
+    this.unmatched = [];
+    if (!purchaseRows || !tracker || !tracker.sets) return this;
+
+    const parts = {};
+    for (const c of (tracker.categories || [])) parts[c.id] = (c.parts || []).map(p => p.key);
+
+    // one entry per lot, even if the board holds duplicate rows for it
+    const open = new Map();
+    for (const s of tracker.sets) {
+      const req = parts[s.catId] || [];
+      const done = new Set(s.done || []);
+      const stillOpen = req.filter(k => !done.has(k));
+      if (!stillOpen.length) continue;
+      const id = lotId(s.pattern);
+      if (!id) continue;
+      const dates = stillOpen.map(k => (s.dates || {})[k]).filter(Boolean).sort();
+      const due = dates.length ? dates[dates.length - 1] : null;
+      const prev = open.get(id);
+      // keep the earliest known due date when a lot appears twice
+      if (!prev || (due && (!prev.due || due < prev.due))) open.set(id, { id, due, label: s.pattern });
+    }
+
+    // index purchase rows by lot
+    const byLot = new Map();
+    for (const r of purchaseRows) {
+      const id = lotId(r['Challan No']);
+      if (!id) continue;
+      if (!byLot.has(id)) byLot.set(id, []);
+      byLot.get(id).push(r);
+    }
+
+    for (const [id, info] of open) {
+      const rows = byLot.get(id);
+      if (!rows) { this.unmatched.push(info); continue; }
+      let pieces = 0;
+      for (const r of rows) {
+        const design = stripDes(r['Design Name Without Prefix'] || r['Design Number']);
+        const color = normColor(r['Color'], aliases);
+        const qty = Number(r['Quantity'] || 0);
+        const sizes = expandSize(r['Size']);
+        if (!design || !color || !qty || !sizes) continue;
+        const per = spread(qty, sizes);
+        const gk = design + '|' + color;
+        if (!this.wip.has(gk)) this.wip.set(gk, {});
+        const bucket = this.wip.get(gk);
+        for (const s of sizes) {
+          bucket[s] = (bucket[s] || 0) + per[s];
+          const ak = gk + '|' + s;
+          if (!this.arrivals.has(ak)) this.arrivals.set(ak, new Map());
+          const byLotHere = this.arrivals.get(ak);
+          // one purchase lot can cover a size through several overlapping ranges
+          const cur = byLotHere.get(id) || { lot: info.label, pieces: 0, due: info.due };
+          cur.pieces += per[s];
+          byLotHere.set(id, cur);
+        }
+        pieces += qty;
+      }
+      this.openLots.push({ id, label: info.label, due: info.due, pieces });
+    }
+
+    for (const [k, m] of this.arrivals) {
+      this.arrivals.set(k, [...m.values()].sort((a, b) => (a.due || '9999').localeCompare(b.due || '9999')));
+    }
+    this.openLots.sort((a, b) => b.pieces - a.pieces);
+    return this;
+  },
+
+  /* netted stock minus work in progress */
+  freeStock(stockMap) {
+    if (!this.wip || !this.wip.size) return { free: stockMap, held: 0 };
+    const free = new Map();
+    let held = 0;
+    for (const [k, bucket] of stockMap) {
+      const w = this.wip.get(k) || {};
+      const out = {};
+      for (const s of Object.keys(bucket)) {
+        const take = Math.min(bucket[s], w[s] || 0);
+        held += take;
+        const left = bucket[s] - take;
+        if (left > 0) out[s] = left;
+      }
+      if (Object.keys(out).length) free.set(k, out);
+    }
+    return { free, held };
+  },
+
+  /* what is coming for one design/colour/size, soonest first */
+  arriving(design, color, size) {
+    if (!this.arrivals) return [];
+    return this.arrivals.get(design + '|' + color + '|' + size) || [];
+  },
+};
+
 /* ---------- state ---------- */
 const S = {
   orderRows: null, stockRows: null,
-  meta: { orders: '', stock: '', track: '', when: '' },
-  track: null,
-  src: { orders: '', stock: '' },
+  meta: { orders: '', stock: '', track: '', purchase: '', when: '' },
+  track: null, purchRows: null,
+  src: { orders: '', stock: '', purchase: '' },
   lines: [], stockMap: null,
   cats: {}, fullOnly: {}, names: {},
   alloc: null, allocRows: [],
+  limit: { design: 120, cust: 120 },
   open: new Set(),      // expanded design rows
   openCust: new Set(),  // expanded customer sub-rows
 };
@@ -654,6 +780,7 @@ const CATS = ['W1', 'W2', 'R1', 'R2', 'R3'];
 /* columns actually used by the engine — everything else is dropped before saving */
 const O_COLS = ['Order Number', 'Order Date', 'Design Name', 'Customer Name', 'Customer Category', 'Color', 'Size', 'Pending Qty.', 'Expected Date', 'Tag'];
 const S_COLS = ['Design Name', 'Color Name', 'Size', 'Current Stock'];
+const P_COLS = ['Challan No', 'Design Number', 'Design Name Without Prefix', 'Color', 'Size', 'Quantity', 'Purchase Date'];
 const slim = (rows, cols) => rows.map(r => { const o = {}; for (const c of cols) o[c] = r[c]; return o; });
 
 const store = {
@@ -723,11 +850,16 @@ const Sheets = {
         if (bad) throw new Error(bad);
         S.orderRows = slim(rows, O_COLS);
         S.meta.orders = 'from sheet';
-      } else {
+      } else if (which === 'stock') {
         const bad = missingCols(rows, ['Design Name', 'Color Name', 'Size', 'Current Stock'], 'stock');
         if (bad) throw new Error(bad);
         S.stockRows = slim(rows, S_COLS);
         S.meta.stock = 'from sheet';
+      } else {
+        const bad = missingCols(rows, ['Challan No', 'Color', 'Size', 'Quantity'], 'purchase');
+        if (bad) throw new Error(bad);
+        S.purchRows = slim(rows, P_COLS);
+        S.meta.purchase = 'from sheet';
       }
       S.meta.when = new Date().toLocaleString();
       return true;
@@ -738,12 +870,13 @@ const Sheets = {
   },
 
   async pullAll(quiet) {
-    if (!S.src.orders && !S.src.stock) return;
+    if (!S.src.orders && !S.src.stock && !S.src.purchase) return;
     $('#refresh').textContent = 'Pulling…';
     const a = await this.pull('orders', quiet);
     const b = await this.pull('stock', quiet);
+    const c = await this.pull('purchase', quiet);
     $('#refresh').textContent = 'Refresh from sheet';
-    if (a || b) { S.open.clear(); S.openCust.clear(); save(); rebuild(); if (!quiet) msg(''); }
+    if (a || b || c) { S.open.clear(); S.openCust.clear(); save(); rebuild(); if (!quiet) msg(''); }
   },
 };
 
@@ -897,6 +1030,26 @@ function shortDate(iso) {
   return +p[2] + ' ' + D_MON[+p[1] - 1];
 }
 
+function arrivalCell(design, color, sizeLabel) {
+  const sizes = expandSize(sizeLabel);
+  if (!sizes || !Lots.arrivals) return readyCell(design, sizeLabel);
+  // an order spans a range; the line can only ship when its slowest size lands
+  const perSize = sizes.map(s => Lots.arriving(design, color, s));
+  if (perSize.some(l => !l.length)) return readyCell(design, sizeLabel);
+  let due = null, lots = new Set();
+  for (const list of perSize) {
+    const first = list[0];
+    lots.add(first.lot);
+    if (!due || (first.due || '9999') > due) due = first.due || '9999';
+  }
+  if (!due || due === '9999') {
+    return '<span class="pend" title="' + esc([...lots].join(', ')) + '">lot cut, no date</span>';
+  }
+  const late = due < new Date().toISOString().slice(0, 10);
+  return '<span class="' + (late ? 'bal' : 'ready') + '" title="from ' + esc([...lots].join(', ')) + '">' +
+    shortDate(due) + '</span>';
+}
+
 function readyCell(design, sizeLabel) {
   const r = SetTracker.lookup(design, sizeLabel);
   if (r.state === 'absent') return '<span class="pend">not on board</span>';
@@ -967,6 +1120,19 @@ $('#fStock').addEventListener('change', async e => {
   } catch (err) { msg('That file ' + esc(err.message || 'could not be opened') + '.', 'bad'); }
 });
 
+$('#fPurch').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try {
+    const { rows } = await readSheet(f, 'Purchase Inward');
+    const bad = missingCols(rows, ['Challan No', 'Color', 'Size', 'Quantity'], 'purchase');
+    if (bad) return msg(bad, 'bad');
+    S.purchRows = slim(rows, P_COLS);
+    S.meta.purchase = f.name;
+    S.meta.when = new Date().toLocaleString();
+    save(); rebuild();
+  } catch (err) { msg('That file ' + esc(err.message || 'could not be opened') + '.', 'bad'); }
+});
+
 $('#fTrack').addEventListener('change', e => {
   const f = e.target.files[0]; if (!f) return;
   const r = new FileReader();
@@ -985,7 +1151,7 @@ $('#fTrack').addEventListener('change', e => {
 
 /* ---------- persistence ---------- */
 function save() {
-  const ok = store.set('allot.data', { orders: S.orderRows, stock: S.stockRows, track: S.track, meta: S.meta });
+  const ok = store.set('allot.data', { orders: S.orderRows, stock: S.stockRows, purchase: S.purchRows, track: S.track, meta: S.meta });
   if (!ok) msg('The files are loaded but too large to keep after a refresh. Everything still works this session.', 'bad');
   saveParties();
 }
@@ -1002,6 +1168,7 @@ function restore() {
   const d = store.get('allot.data');
   if (d) {
     if (d.orders) { S.orderRows = d.orders; S.stockRows = d.stock; }
+    if (d.purchase) { S.purchRows = d.purchase; }
     if (d.track) { S.track = d.track; SetTracker.load(d.track); }
     S.meta = d.meta || S.meta;
   }
@@ -1009,7 +1176,10 @@ function restore() {
 }
 
 /* ---------- pipeline ---------- */
+function totalPieces(m) { let n = 0; for (const [, b] of m) for (const s of Object.keys(b)) n += b[s]; return n; }
+
 function rebuild() {
+  S.limit = { design: 120, cust: 120 };
   paintIntake();
   if (!S.orderRows) { paintEmpty(); return; }
 
@@ -1023,7 +1193,13 @@ function rebuild() {
     }
   }
 
-  S.stockMap = S.stockRows ? netStock(S.stockRows, { stockColumn: 'Current Stock' }).stock : new Map();
+  const netted = S.stockRows ? netStock(S.stockRows, { stockColumn: 'Current Stock' }).stock : new Map();
+  const board = Live.on ? { sets: Live.sets, categories: Live.categories || [] } : S.track;
+  Lots.build(S.purchRows, board, {});
+  const split = Lots.freeStock(netted);
+  S.stockMap = split.free;
+  S.nettedTotal = totalPieces(netted);
+  S.heldWip = split.held;
 
   const cats = {};
   for (const k of Object.keys(S.cats)) if (S.cats[k]) cats[k] = S.cats[k];
@@ -1046,6 +1222,10 @@ function paintIntake() {
   $('#dropOrders').classList.toggle('on', !!S.orderRows);
   $('#hStock').textContent = S.stockRows ? S.stockRows.length + ' stock rows · ' + (S.meta.stock || 'loaded') : 'Design Wise Stock Overall Detail — tap to choose';
   $('#dropStock').classList.toggle('on', !!S.stockRows);
+  $('#hPurch').textContent = S.purchRows
+    ? S.purchRows.length + ' purchase rows · ' + (S.meta.purchase || 'loaded')
+    : 'Purchase export — tells the app what is cut but unfinished';
+  $('#dropPurch').classList.toggle('on', !!S.purchRows);
   const n = SetTracker.index ? SetTracker.index.size : 0;
   $('#hTrack').textContent = n
     ? n + ' patterns · ' + (Live.on ? 'live from the board' : (S.meta.track || 'from file'))
@@ -1092,6 +1272,19 @@ function designWiseRows() {
 }
 
 /* short rows with nothing on the production board — the real blind spot */
+function wipBanner() {
+  if (!S.purchRows) {
+    return '<div class="note">No purchase file loaded. Stock is being treated as fully available, which overstates it — purchase entries are made at cutting, so uncut and unstitched goods sit inside Current Stock.</div>';
+  }
+  if (!Lots.openLots.length) return '';
+  const top = Lots.openLots.slice(0, 4)
+    .map(l => esc(l.label) + ' ' + l.pieces + (l.due ? ' due ' + shortDate(l.due) : '')).join(' · ');
+  return '<div class="note"><b>' + S.heldWip + ' pieces held back as work in progress</b> across ' +
+    Lots.openLots.length + ' lot' + (Lots.openLots.length > 1 ? 's' : '') +
+    ' still open on the board. They are counted in Current Stock but are not sets yet, so they are not allotted. ' +
+    top + (Lots.openLots.length > 4 ? ' …' : '') + '</div>';
+}
+
 function boardGap(rows) {
   if (!SetTracker.index) return '';
   const gaps = rows.filter(r => r.qty > r.allotted && SetTracker.lookup(r.design, r.size).state === 'absent');
@@ -1105,9 +1298,10 @@ function renderDesign() {
   const rows = designWiseRows();
   let h = '<h2 class="sec">Design wise pending orders</h2>' +
     '<p class="exp">' + rows.length + ' rows · ' + rows.reduce((t, r) => t + r.qty, 0) + ' pieces pending · ' +
-    rows.reduce((t, r) => t + r.allotted, 0) + ' allotted. Tap any row for the parties behind it.</p>' + boardGap(rows);
+    rows.reduce((t, r) => t + r.allotted, 0) + ' allotted. Tap any row for the parties behind it.</p>' + wipBanner() + boardGap(rows);
   h += '<div class="tw"><table><thead><tr><th></th><th>Design</th><th>Colour</th><th>Size</th><th class="n">Pending qty</th><th class="n">Allotted</th><th class="n">Short</th></tr></thead><tbody>';
-  for (const r of rows) {
+  const shown = rows.slice(0, S.limit.design);
+  for (const r of shown) {
     const open = S.open.has(r.key);
     const short = r.qty - r.allotted;
     h += '<tr class="clik" data-k="' + esc(r.key) + '"><td class="tw-x">' + (open ? '&minus;' : '+') + '</td>' +
@@ -1117,7 +1311,13 @@ function renderDesign() {
       '<td class="n ' + (short ? 'bal' : 'none') + '">' + (short || '—') + '</td></tr>';
     if (open) h += drillRows(r);
   }
-  $('#p-design').innerHTML = h + '</tbody></table></div>';
+  h += '</tbody></table></div>';
+  if (rows.length > shown.length) {
+    h += '<button class="more" id="moreDesign">Show the remaining ' + (rows.length - shown.length) + ' rows</button>';
+  }
+  $('#p-design').innerHTML = h;
+  const md = $('#moreDesign');
+  if (md) md.addEventListener('click', () => { S.limit.design += 250; renderDesign(); });
   $('#p-design').querySelectorAll('tr.clik').forEach(tr => tr.addEventListener('click', () => {
     const k = tr.dataset.k;
     S.open.has(k) ? S.open.delete(k) : S.open.add(k);
@@ -1150,7 +1350,7 @@ function drillRows(g) {
         '<span class="dk">Order</span> ' + esc(k.order || '—') +
         ' <span class="dk">Dated</span> ' + esc(k.date || '—') +
         (k.ranges.length ? ' <span class="dk">Sizes reserved</span> ' + k.ranges.map(x => esc(x.size) + '&times;' + x.pieces).join(', ') : '') +
-        (k.balance ? ' <span class="dk">Balance arrives</span> ' + readyCell(g.design, g.size) : ' <span class="dk">Ready to dispatch from stock</span>') +
+        (k.balance ? ' <span class="dk">Balance arrives</span> ' + arrivalCell(g.design, g.color, g.size) : ' <span class="dk">Ready to dispatch from stock</span>') +
         '</td></tr>';
     }
   }
@@ -1174,17 +1374,24 @@ function renderCustomer() {
     '<p class="exp">' + rows.length + ' rows across ' + new Set(rows.map(r => r.ckey)).size + ' parties. ' +
     'Ready date comes from Set Tracker once the two are linked.</p>';
   h += '<div class="tw"><table><thead><tr><th>Customer</th><th>Design</th><th>Colour</th><th>Size</th><th class="n">Pending qty</th><th>Ready date</th></tr></thead><tbody>';
+  const shown = rows.slice(0, S.limit.cust);
   let last = null;
-  for (const r of rows) {
+  for (const r of shown) {
     if (r.customer !== last) {
       h += '<tr class="grp"><td colspan="6">' + esc(r.customer) +
         (S.cats[r.ckey] ? ' <span class="tag t-' + S.cats[r.ckey] + '">' + S.cats[r.ckey] + '</span>' : '') + '</td></tr>';
       last = r.customer;
     }
     h += '<tr><td></td><td>DES-' + esc(r.design) + '</td><td>' + esc(title(r.color)) + '</td><td>' + esc(r.size) + '</td>' +
-      '<td class="n">' + r.qty + '</td><td>' + readyCell(r.design, r.size) + '</td></tr>';
+      '<td class="n">' + r.qty + '</td><td>' + arrivalCell(r.design, r.color, r.size) + '</td></tr>';
   }
-  $('#p-cust').innerHTML = h + '</tbody></table></div>';
+  h += '</tbody></table></div>';
+  if (rows.length > shown.length) {
+    h += '<button class="more" id="moreCust">Show the remaining ' + (rows.length - shown.length) + ' rows</button>';
+  }
+  $('#p-cust').innerHTML = h;
+  const mc = $('#moreCust');
+  if (mc) mc.addEventListener('click', () => { S.limit.cust += 250; renderCustomer(); });
 }
 
 /* ---------- parties drawer ---------- */
@@ -1200,7 +1407,7 @@ function renderParties() {
     '<div class="bar"><label class="inline">Set all blank to <select id="bulkCat">' +
     CATS.map(c => '<option>' + c + '</option>').join('') + '</select></label>' +
     '<button id="bulkGo">Apply</button><button id="saveCats">Save list</button><button id="loadCats">Load list</button></div>' +
-    '<div class="tw" style="max-height:340px;overflow:auto"><table><thead><tr><th>Party</th><th class="n">Pending</th><th>Category</th><th>Whole order only</th></tr></thead><tbody>';
+    '<div class="tw vscroll" style="max-height:340px;overflow:auto"><table><thead><tr><th>Party</th><th class="n">Pending</th><th>Category</th><th>Whole order only</th></tr></thead><tbody>';
   for (const k of keys) {
     h += '<tr><td>' + esc(S.names[k]) + '</td><td class="n">' + (counts[k] || 0) + '</td>' +
       '<td><select data-cat="' + esc(k) + '"><option value="">—</option>' +
@@ -1258,6 +1465,7 @@ $('#exportBtn').addEventListener('click', () => {
     'Allotted': r.allocated, 'Balance': r.balance,
     'Allot Sizes': r.ranges.map(x => x.size + ' x ' + x.pieces).join(', '),
     'Ready Date': (function(){ const t = SetTracker.lookup(r.design, r.size); return t.state === 'dated' ? t.date : (t.state === 'done' ? 'complete' : ''); })(),
+    'In Production': (Lots.arriving(r.design, r.color, String(expandSize(r.size) ? expandSize(r.size)[0] : '')).reduce((t, x) => t + x.pieces, 0) || ''),
     'Lot': (SetTracker.lookup(r.design, r.size).label || ''),
   });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(dw), 'Design Wise Pending');
@@ -1283,6 +1491,8 @@ function renderSources() {
     'File pickers above still work and override whatever was pulled.</p>' +
     '<label class="fld"><span>Pending orders tab</span>' +
     '<input type="text" id="srcOrders" placeholder="https://docs.google.com/spreadsheets/d/…#gid=…" value="' + esc(S.src.orders) + '"></label>' +
+    '<label class="fld"><span>Purchase inward tab</span>' +
+    '<input type="text" id="srcPurch" placeholder="paste the purchase tab link, or leave blank and upload" value="' + esc(S.src.purchase) + '"></label>' +
     '<label class="fld"><span>Stock tab</span>' +
     '<input type="text" id="srcStock" placeholder="paste the stock tab link, or leave blank and upload the file" value="' + esc(S.src.stock) + '"></label>' +
     '<div class="bar"><button id="saveSrc">Save and pull</button>' +
@@ -1290,6 +1500,7 @@ function renderSources() {
   $('#saveSrc').addEventListener('click', async () => {
     S.src.orders = $('#srcOrders').value.trim();
     S.src.stock = $('#srcStock').value.trim();
+    S.src.purchase = $('#srcPurch').value.trim();
     saveParties();
     await Sheets.pullAll(false);
   });
@@ -1307,7 +1518,7 @@ $('#mode').addEventListener('change', rebuild);
 $('#defCat').addEventListener('change', rebuild);
 $('#clear').addEventListener('click', () => {
   if (!confirm('Clear the loaded files? Party categories are kept.')) return;
-  S.orderRows = S.stockRows = null; S.lines = []; S.allocRows = [];
+  S.orderRows = S.stockRows = S.purchRows = null; S.lines = []; S.allocRows = [];
   S.track = null; SetTracker.raw = null; SetTracker.index = null;
   S.meta = { orders: '', stock: '', track: '', when: '' };
   store.set('allot.data', null);
