@@ -48,7 +48,7 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid 
 select,input[type=text]{font:inherit;font-size:14px;padding:6px 8px;border:1px solid var(--rule);border-radius:3px;background:var(--card);color:var(--ink)}
 label.inline{font-size:13.5px;color:var(--ink-2);display:flex;align-items:center;gap:6px}
 #partyCount{color:var(--ink-2);font-size:12.5px}
-#partyWrap{background:var(--card);border:1px solid var(--rule);border-radius:3px;padding:14px 16px;margin:4px 0 6px}
+#partyWrap,#sourceWrap{background:var(--card);border:1px solid var(--rule);border-radius:3px;padding:14px 16px;margin:4px 0 6px}
 
 nav.tabs{display:flex;gap:2px;border-bottom:1px solid var(--rule);margin-top:16px;overflow-x:auto}
 nav.tabs button{border:none;border-bottom:2px solid transparent;background:none;border-radius:0;padding:9px 13px;color:var(--ink-2);white-space:nowrap;font-size:14px}
@@ -88,6 +88,10 @@ tr.detail td .dk:first-child{margin-left:0}
 .empty{color:var(--ink-2);padding:34px 16px;text-align:center;font-size:14px;background:var(--card);border:1px solid var(--rule);border-radius:3px}
 h2.sec{font-size:16px;font-weight:640;margin:0 0 8px}
 p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
+.fld{display:block;margin:10px 0}
+.fld span{display:block;font-size:12.5px;color:var(--ink-2);margin-bottom:4px}
+.fld input{width:100%}
+.hintline{font-size:12.5px;color:var(--ink-2)}
 .chip{font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:10px;background:var(--rule-2);color:var(--ink-2)}
 .chip.live{background:var(--good-bg);color:var(--good)}
 .chip.wait{background:var(--amber-bg);color:var(--amber)}
@@ -100,7 +104,7 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
 
 <header class="top">
   <h1>Pending &amp; Allotment</h1>
-  <span class="ver">v3.0</span>
+  <span class="ver">v3.2</span>
   <span class="chip" id="chip" title="Set Tracker connection">local</span>
 </header>
 <p class="sub-t">Your two pending reports, with stock already allotted against them.</p>
@@ -131,6 +135,8 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
   <label class="inline">Unassigned parties
     <select id="defCat"><option value="R3">R3</option><option value="R2">R2</option><option value="R1">R1</option></select>
   </label>
+  <button id="togSources" aria-expanded="false">Sheet links</button>
+  <button id="refresh">Refresh from sheet</button>
   <button id="togParties" aria-expanded="false">Party categories</button>
   <span id="partyCount"></span>
   <button id="exportBtn" disabled>Export to Excel</button>
@@ -138,6 +144,7 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
   <input type="file" id="fCats" accept=".json" class="sr">
 </div>
 
+<div id="sourceWrap" hidden><div id="sources"></div></div>
 <div id="partyWrap" hidden><div id="parties"></div></div>
 <div id="msg"></div>
 
@@ -635,6 +642,7 @@ const S = {
   orderRows: null, stockRows: null,
   meta: { orders: '', stock: '', track: '', when: '' },
   track: null,
+  src: { orders: '', stock: '' },
   lines: [], stockMap: null,
   cats: {}, fullOnly: {}, names: {},
   alloc: null, allocRows: [],
@@ -652,6 +660,93 @@ const store = {
   get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } },
 };
+
+/* ----------------------------------------------------------------
+   SHEET SOURCES — pull the two tables straight from Google Sheets.
+   Accepts either a normal sheet URL (converted to the gviz CSV
+   endpoint) or a File → Share → Publish to web CSV link. Read-only.
+------------------------------------------------------------------ */
+const Sheets = {
+  normalize(u) {
+    u = String(u || '').trim();
+    if (!u) return '';
+    if (u.includes('/pub')) return u.includes('output=csv') ? u : u + (u.includes('?') ? '&' : '?') + 'output=csv';
+    const id = u.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+    if (!id) return u;
+    const gid = (u.match(/[#&?]gid=(\d+)/) || [])[1] || '0';
+    return 'https://docs.google.com/spreadsheets/d/' + id[1] + '/gviz/tq?tqx=out:csv&gid=' + gid;
+  },
+
+  /* Deliberately not SheetJS: its CSV reader guesses types and turns
+     size labels like 4-8 into dates. Everything here stays a string. */
+  parseCsv(text) {
+    if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+    const rows = [];
+    let row = [], cell = '', q = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (q) {
+        if (c === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; }
+        else cell += c;
+      } else if (c === '"') q = true;
+      else if (c === ',') { row.push(cell); cell = ''; }
+      else if (c === '\n') { row.push(cell); rows.push(row); row = []; cell = ''; }
+      else if (c !== '\r') cell += c;
+    }
+    if (cell.length || row.length) { row.push(cell); rows.push(row); }
+    if (!rows.length) return [];
+    const head = rows[0].map(h => h.trim());
+    return rows.slice(1)
+      .filter(r => r.some(v => v !== ''))
+      .map(r => { const o = {}; head.forEach((h, i) => { o[h] = (r[i] == null ? '' : r[i]).trim(); }); return o; });
+  },
+
+  async grab(url) {
+    const r = await fetch(this.normalize(url), { credentials: 'omit' });
+    if (!r.ok) throw new Error(r.status === 404 ? 'that tab was not found' : 'the sheet refused the request (' + r.status + ')');
+    const text = await r.text();
+    if (/^\s*</.test(text)) throw new Error('the sheet is not readable without signing in');
+    return this.parseCsv(text);
+  },
+
+  async pull(which, quiet) {
+    const url = S.src[which];
+    if (!url) return false;
+    try {
+      const rows = await this.grab(url);
+      const head = rows.length ? Object.keys(rows[0]) : [];
+      if (head.some(h => /^SUM of /i.test(h))) {
+        throw new Error('that is a pivot tab, not the raw data — point this at the Input Design Pending Orders tab instead');
+      }
+      if (which === 'orders') {
+        const bad = missingCols(rows, ['Design Name', 'Customer Name', 'Color', 'Size', 'Pending Qty.'], 'pending order');
+        if (bad) throw new Error(bad);
+        S.orderRows = slim(rows, O_COLS);
+        S.meta.orders = 'from sheet';
+      } else {
+        const bad = missingCols(rows, ['Design Name', 'Color Name', 'Size', 'Current Stock'], 'stock');
+        if (bad) throw new Error(bad);
+        S.stockRows = slim(rows, S_COLS);
+        S.meta.stock = 'from sheet';
+      }
+      S.meta.when = new Date().toLocaleString();
+      return true;
+    } catch (e) {
+      if (!quiet) msg('Could not read the ' + which + ' tab — ' + esc(e.message) + '. Check the link, or use File → Share → Publish to web → CSV in the sheet.', 'bad');
+      return false;
+    }
+  },
+
+  async pullAll(quiet) {
+    if (!S.src.orders && !S.src.stock) return;
+    $('#refresh').textContent = 'Pulling…';
+    const a = await this.pull('orders', quiet);
+    const b = await this.pull('stock', quiet);
+    $('#refresh').textContent = 'Refresh from sheet';
+    if (a || b) { S.open.clear(); S.openCust.clear(); save(); rebuild(); if (!quiet) msg(''); }
+  },
+};
+
 
 /* ----------------------------------------------------------------
    LIVE BOARD — read-only Firestore link to Set Tracker.
@@ -685,6 +780,7 @@ const Live = {
       firebase.initializeApp(FIREBASE_CONFIG);
       const db = firebase.firestore();
 Live.start();
+Sheets.pullAll(true);
       this.chip('wait', 'connecting');
 
       db.collection('sets').onSnapshot(
@@ -897,8 +993,10 @@ function saveParties() {
   const o = {};
   for (const k of Object.keys(S.names)) o[k] = { cat: S.cats[k] || '', full: !!S.fullOnly[k], name: S.names[k] };
   store.set('allot.parties', o);
+  store.set('allot.src', S.src);
 }
 function restore() {
+  const src = store.get('allot.src'); if (src) S.src = src;
   const p = store.get('allot.parties');
   if (p) for (const k of Object.keys(p)) { S.cats[k] = p[k].cat; S.fullOnly[k] = !!p[k].full; S.names[k] = p[k].name || k; }
   const d = store.get('allot.data');
@@ -1178,6 +1276,33 @@ $('#togParties').addEventListener('click', () => {
   open ? d.removeAttribute('hidden') : d.setAttribute('hidden', '');
   $('#togParties').setAttribute('aria-expanded', open);
 });
+/* ---------- sheet sources panel ---------- */
+function renderSources() {
+  $('#sources').innerHTML =
+    '<p class="exp">Paste the link to each tab of your pending-order sheet. The app pulls from them on open, so you never upload a file again. ' +
+    'File pickers above still work and override whatever was pulled.</p>' +
+    '<label class="fld"><span>Pending orders tab</span>' +
+    '<input type="text" id="srcOrders" placeholder="https://docs.google.com/spreadsheets/d/…#gid=…" value="' + esc(S.src.orders) + '"></label>' +
+    '<label class="fld"><span>Stock tab</span>' +
+    '<input type="text" id="srcStock" placeholder="paste the stock tab link, or leave blank and upload the file" value="' + esc(S.src.stock) + '"></label>' +
+    '<div class="bar"><button id="saveSrc">Save and pull</button>' +
+    '<span class="hintline">If the sheet is private, use File → Share → Publish to web → pick the tab → CSV, and paste that link instead.</span></div>';
+  $('#saveSrc').addEventListener('click', async () => {
+    S.src.orders = $('#srcOrders').value.trim();
+    S.src.stock = $('#srcStock').value.trim();
+    saveParties();
+    await Sheets.pullAll(false);
+  });
+}
+$('#togSources').addEventListener('click', () => {
+  const d = $('#sourceWrap');
+  const open = d.hasAttribute('hidden');
+  open ? d.removeAttribute('hidden') : d.setAttribute('hidden', '');
+  $('#togSources').setAttribute('aria-expanded', open);
+  renderSources();
+});
+$('#refresh').addEventListener('click', () => Sheets.pullAll(false));
+
 $('#mode').addEventListener('change', rebuild);
 $('#defCat').addEventListener('change', rebuild);
 $('#clear').addEventListener('click', () => {
@@ -1192,6 +1317,7 @@ $('#clear').addEventListener('click', () => {
 
 restore();
 Live.start();
+Sheets.pullAll(true);
 
 </script>
 </body>
