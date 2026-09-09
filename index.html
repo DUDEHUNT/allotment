@@ -43,6 +43,7 @@ header.top .ver{color:var(--ink-2);font-size:12px}
 .bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:14px 0}
 button{font:inherit;font-size:14px;background:var(--card);color:var(--ink);border:1px solid var(--rule);border-radius:3px;padding:7px 13px;cursor:pointer}
 button:hover{border-color:var(--ink-2)}
+button.primary{background:var(--ink);color:#fff;border-color:var(--ink)}
 button:disabled{opacity:.45;cursor:default}
 button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--w);outline-offset:1px}
 select,input[type=text]{font:inherit;font-size:14px;padding:6px 8px;border:1px solid var(--rule);border-radius:3px;background:var(--card);color:var(--ink)}
@@ -108,7 +109,7 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
 
 <header class="top">
   <h1>Pending &amp; Allotment</h1>
-  <span class="ver">v3.1</span>
+  <span class="ver">v4.1</span>
   <span class="chip" id="chip" title="Set Tracker connection">local</span>
 </header>
 <p class="sub-t">Your two pending reports, with stock already allotted against them.</p>
@@ -864,7 +865,10 @@ const Sheets = {
       S.meta.when = new Date().toLocaleString();
       return true;
     } catch (e) {
-      if (!quiet) msg('Could not read the ' + which + ' tab — ' + esc(e.message) + '. Check the link, or use File → Share → Publish to web → CSV in the sheet.', 'bad');
+      const cors = /Failed to fetch|NetworkError|Load failed/i.test(e.message || '');
+      msg('<b>Could not read the ' + which + ' tab.</b> ' + (cors
+        ? 'Google blocked the request from this page. Fix it in the sheet: File → Share → Publish to web → pick that tab → CSV → Publish, then paste the published link here instead of the normal one.'
+        : esc(e.message)), 'bad');
       return false;
     }
   },
@@ -913,7 +917,7 @@ const Live = {
       firebase.initializeApp(FIREBASE_CONFIG);
       const db = firebase.firestore();
 Live.start();
-Sheets.pullAll(true);
+Sheets.pullAll(false);
       this.chip('wait', 'connecting');
 
       db.collection('sets').onSnapshot(
@@ -921,6 +925,9 @@ Sheets.pullAll(true);
           this.sets = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
           this.on = true;
           this.apply();
+          // if the categories doc never turns up, carry on with what the sets imply
+          clearTimeout(this._t);
+          this._t = setTimeout(() => { if (!this.categories) this.apply(true); }, 5000);
         },
         err => this.fail(err)
       );
@@ -943,11 +950,20 @@ Sheets.pullAll(true);
     this.chip('err', 'board offline');
   },
 
-  apply() {
+  apply(giveUp) {
     if (!this.sets) return;
-    // categories may arrive after sets, or come from a previously loaded export
+    // categories can arrive after sets, or come from an export loaded earlier
     const cats = this.categories || (S.track && S.track.categories) || [];
-    if (!cats.length) return this.chip('wait', 'connecting');
+    if (!cats.length) {
+      // Guessing the stage list would risk calling an unstarted lot finished
+      // and releasing stock that does not exist, so stop and say so instead.
+      if (!giveUp) return this.chip('wait', 'connecting');
+      this.chip('err', 'need stage list');
+      msg('<b>Connected to the board — ' + this.sets.length + ' lots — but the production stage list is not readable.</b> ' +
+        'Open Set Tracker once, tap Export JSON, and load that file into the Set Tracker slot above. ' +
+        'It only has to be done once; after that the live feed works on its own.', 'bad');
+      return;
+    }
     SetTracker.load({ sets: this.sets, categories: cats });
     S.liveCount = this.sets.length;
     this.chip('live', 'board live · ' + SetTracker.index.size);
@@ -1495,7 +1511,11 @@ function renderSources() {
     '<input type="text" id="srcPurch" placeholder="paste the purchase tab link, or leave blank and upload" value="' + esc(S.src.purchase) + '"></label>' +
     '<label class="fld"><span>Stock tab</span>' +
     '<input type="text" id="srcStock" placeholder="paste the stock tab link, or leave blank and upload the file" value="' + esc(S.src.stock) + '"></label>' +
-    '<div class="bar"><button id="saveSrc">Save and pull</button>' +
+    '<div class="bar"><button id="saveSrc" class="primary">Save and pull</button>' +
+    '<span class="hintline">' + (S.src.orders || S.src.stock || S.src.purchase
+      ? 'Saved links: ' + ['orders', 'stock', 'purchase'].filter(k => S.src[k]).join(', ')
+      : 'No links saved yet — paste and press Save and pull.') + '</span></div>' +
+    '<div class="bar">' +
     '<span class="hintline">If the sheet is private, use File → Share → Publish to web → pick the tab → CSV, and paste that link instead.</span></div>';
   $('#saveSrc').addEventListener('click', async () => {
     S.src.orders = $('#srcOrders').value.trim();
@@ -1528,7 +1548,7 @@ $('#clear').addEventListener('click', () => {
 
 restore();
 Live.start();
-Sheets.pullAll(true);
+Sheets.pullAll(false);
 
 </script>
 </body>
