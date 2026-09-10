@@ -2,6 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Pending &amp; Allotment — POGO</title>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -96,6 +98,11 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
 .fld span{display:block;font-size:12.5px;color:var(--ink-2);margin-bottom:4px}
 .fld input{width:100%}
 .hintline{font-size:12.5px;color:var(--ink-2)}
+.seg{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:12px 0}
+.seg-l{font-size:12.5px;color:var(--ink-2)}
+.seg-b{font-size:13px;padding:7px 12px;border:1px solid var(--rule);background:var(--card);border-radius:3px;color:var(--ink-2)}
+.seg-b.on{background:var(--ink);border-color:var(--ink);color:#fff;font-weight:600}
+@media(max-width:760px){.seg-b{flex:1 1 0;padding:9px 6px;text-align:center}}
 .chip{font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:10px;background:var(--rule-2);color:var(--ink-2)}
 .chip.live{background:var(--good-bg);color:var(--good)}
 .chip.wait{background:var(--amber-bg);color:var(--amber)}
@@ -119,7 +126,8 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
 
 <header class="top">
   <h1>Pending &amp; Allotment</h1>
-  <span class="ver">v4.4</span>
+  <span class="ver">v4.6</span>
+  <span class="chip" id="build">build 4.6</span>
   <span class="chip" id="chip" title="Set Tracker connection">local</span>
 </header>
 <p class="sub-t">Your two pending reports, with stock already allotted against them.</p>
@@ -1330,10 +1338,11 @@ function renderDesign() {
   let h = '<h2 class="sec">Design wise pending orders</h2>' +
     '<p class="exp">' + rows.length + ' rows · ' + rows.reduce((t, r) => t + r.qty, 0) + ' pieces pending · ' +
     rows.reduce((t, r) => t + r.allotted, 0) + ' allotted. Tap any row for the parties behind it.</p>' +
-    '<div class="bar"><label class="inline">Sort by <select id="sortDesign">' +
-    [['design', 'design number'], ['qty', 'pending qty, high to low'], ['short', 'shortfall, high to low']]
-      .map(o => '<option value="' + o[0] + '"' + (S.sortDesign === o[0] ? ' selected' : '') + '>' + o[1] + '</option>').join('') +
-    '</select></label></div>' + wipBanner() + boardGap(rows);
+    '<div class="seg"><span class="seg-l">Sort</span>' +
+    [['design', 'design no.'], ['qty', 'most ordered'], ['short', 'most short']]
+      .map(o => '<button type="button" class="seg-b' + (S.sortDesign === o[0] ? ' on' : '') +
+        '" data-sort="' + o[0] + '">' + o[1] + '</button>').join('') +
+    '</div>' + wipBanner() + boardGap(rows);
   h += '<div class="tw"><table><thead><tr><th></th><th>Design</th><th>Colour</th><th>Size</th><th class="n">Pend</th><th class="n">Allot</th><th class="n">Short</th></tr></thead><tbody>';
   for (const r of rows) {
     const open = S.open.has(r.key);
@@ -1348,15 +1357,23 @@ function renderDesign() {
   $('#p-design').innerHTML = h + '</tbody></table></div>';
 }
 
+/* Any script error becomes visible instead of silently killing a render. */
+window.addEventListener('error', ev => {
+  const m = ev.error && ev.error.stack ? ev.error.stack.split('\n').slice(0, 2).join(' — ') : ev.message;
+  $('#msg').innerHTML = '<div class="note bad"><b>Script error:</b> ' + esc(m) + '</div>';
+});
+window.addEventListener('unhandledrejection', ev => {
+  $('#msg').innerHTML = '<div class="note bad"><b>Background error:</b> ' + esc((ev.reason && ev.reason.message) || ev.reason) + '</div>';
+});
+
 /* One set of listeners on the document, bound at startup. Re-rendering a panel
    used to throw its listeners away with it; nothing to lose now. */
-document.addEventListener('change', e => {
-  if (e.target && e.target.id === 'sortDesign') {
-    S.sortDesign = e.target.value;
-    renderDesign();
-  }
-});
 document.addEventListener('click', e => {
+  const sb = e.target.closest && e.target.closest('[data-sort]');
+  if (sb) {
+    S.sortDesign = sb.dataset.sort;
+    return renderDesign();
+  }
   const sub = e.target.closest && e.target.closest('tr.clik2');
   if (sub) {
     const k = sub.dataset.k;
