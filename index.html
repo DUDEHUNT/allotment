@@ -57,9 +57,9 @@ nav.tabs button[aria-selected=true]{color:var(--ink);border-bottom-color:var(--i
 section.panel{display:none;padding-top:18px}
 section.panel.show{display:block}
 
-.tw{overflow-x:auto;border:1px solid var(--rule);border-radius:3px;background:var(--card);
-  touch-action:pan-x;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch;contain:content}
-.tw.vscroll{touch-action:auto;overscroll-behavior:contain}
+.tw{overflow-x:auto;border:1px solid var(--rule);border-radius:3px;background:var(--card)}
+/* skip painting rows that are off screen — keeps 500+ rows smooth */
+tbody tr{content-visibility:auto;contain-intrinsic-size:0 34px}
 table{border-collapse:collapse;width:100%;font-size:13.5px}
 th,td{padding:7px 11px;text-align:left;border-bottom:1px solid var(--rule-2);white-space:nowrap}
 th{background:var(--card);font-weight:600;font-size:12px;color:var(--ink-2);border-bottom:1px solid var(--rule)}
@@ -89,7 +89,6 @@ tr.detail td .dk:first-child{margin-left:0}
 
 .note{background:var(--amber-bg);border:1px solid #E4D3A8;border-radius:3px;padding:11px 13px;font-size:13.5px;margin:14px 0}
 .note.bad{background:var(--short-bg);border-color:#E8C4B4}
-.more{display:block;width:100%;margin:10px 0 0;padding:10px;text-align:center}
 .empty{color:var(--ink-2);padding:34px 16px;text-align:center;font-size:14px;background:var(--card);border:1px solid var(--rule);border-radius:3px}
 h2.sec{font-size:16px;font-weight:640;margin:0 0 8px}
 p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
@@ -101,6 +100,28 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
 .chip.live{background:var(--good-bg);color:var(--good)}
 .chip.wait{background:var(--amber-bg);color:var(--amber)}
 .chip.err{background:var(--short-bg);color:var(--short)}
+@media(max-width:760px){
+  .wrap{padding:16px 10px 70px}
+  .tw{overflow-x:hidden}
+  table{font-size:13px;table-layout:fixed;width:100%}
+  th,td{padding:7px 4px}
+  th:first-child,td:first-child{padding-left:9px}
+  th:last-child,td:last-child{padding-right:9px}
+  td.wrap{white-space:normal;word-break:break-word}
+  tr.detail td{white-space:normal}
+  td.tw-x{width:18px;padding-right:0}
+  /* fixed layout needs real widths, or every column takes an equal slice */
+  #p-design th:nth-child(1),#p-design td:nth-child(1){width:17px}
+  #p-design th:nth-child(2),#p-design td:nth-child(2){width:62px}
+  #p-design th:nth-child(4),#p-design td:nth-child(4){width:42px}
+  #p-design th:nth-child(5),#p-design td:nth-child(5){width:34px}
+  #p-design th:nth-child(6),#p-design td:nth-child(6){width:34px}
+  #p-design th:nth-child(7),#p-design td:nth-child(7){width:30px}
+  #p-cust th:nth-child(1),#p-cust td:nth-child(1){width:70px}
+  #p-cust th:nth-child(3),#p-cust td:nth-child(3){width:44px}
+  #p-cust th:nth-child(4),#p-cust td:nth-child(4){width:42px}
+  #p-cust th:nth-child(5),#p-cust td:nth-child(5){width:62px}
+}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 </style>
 </head>
@@ -109,7 +130,7 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
 
 <header class="top">
   <h1>Pending &amp; Allotment</h1>
-  <span class="ver">v4.1</span>
+  <span class="ver">v4.3</span>
   <span class="chip" id="chip" title="Set Tracker connection">local</span>
 </header>
 <p class="sub-t">Your two pending reports, with stock already allotted against them.</p>
@@ -772,7 +793,7 @@ const S = {
   lines: [], stockMap: null,
   cats: {}, fullOnly: {}, names: {},
   alloc: null, allocRows: [],
-  limit: { design: 120, cust: 120 },
+  sortDesign: 'design',
   open: new Set(),      // expanded design rows
   openCust: new Set(),  // expanded customer sub-rows
 };
@@ -1195,7 +1216,6 @@ function restore() {
 function totalPieces(m) { let n = 0; for (const [, b] of m) for (const s of Object.keys(b)) n += b[s]; return n; }
 
 function rebuild() {
-  S.limit = { design: 120, cust: 120 };
   paintIntake();
   if (!S.orderRows) { paintEmpty(); return; }
 
@@ -1268,6 +1288,12 @@ function checkColours() {
 }
 
 /* ---------- design wise, with drill-down ---------- */
+function cmpDesign(a, b) {
+  return a.design.localeCompare(b.design, undefined, { numeric: true })
+    || a.color.localeCompare(b.color)
+    || String(a.size).localeCompare(String(b.size), undefined, { numeric: true });
+}
+
 function designWiseRows() {
   const map = new Map();
   for (const ln of S.lines) {
@@ -1281,10 +1307,10 @@ function designWiseRows() {
     const g = map.get(r.design + '|' + r.color + '|' + r.size);
     if (g) g.allotted += r.allocated;
   }
-  return [...map.values()].sort((a, b) =>
-    a.design.localeCompare(b.design, undefined, { numeric: true })
-    || a.color.localeCompare(b.color)
-    || String(a.size).localeCompare(String(b.size), undefined, { numeric: true }));
+  const out = [...map.values()];
+  if (S.sortDesign === 'qty') return out.sort((a, b) => b.qty - a.qty || cmpDesign(a, b));
+  if (S.sortDesign === 'short') return out.sort((a, b) => (b.qty - b.allotted) - (a.qty - a.allotted) || cmpDesign(a, b));
+  return out.sort(cmpDesign);
 }
 
 /* short rows with nothing on the production board — the real blind spot */
@@ -1314,26 +1340,24 @@ function renderDesign() {
   const rows = designWiseRows();
   let h = '<h2 class="sec">Design wise pending orders</h2>' +
     '<p class="exp">' + rows.length + ' rows · ' + rows.reduce((t, r) => t + r.qty, 0) + ' pieces pending · ' +
-    rows.reduce((t, r) => t + r.allotted, 0) + ' allotted. Tap any row for the parties behind it.</p>' + wipBanner() + boardGap(rows);
+    rows.reduce((t, r) => t + r.allotted, 0) + ' allotted. Tap any row for the parties behind it.</p>' +
+    '<div class="bar"><label class="inline">Sort by <select id="sortDesign">' +
+    [['design', 'design number'], ['qty', 'pending qty, high to low'], ['short', 'shortfall, high to low']]
+      .map(o => '<option value="' + o[0] + '"' + (S.sortDesign === o[0] ? ' selected' : '') + '>' + o[1] + '</option>').join('') +
+    '</select></label></div>' + wipBanner() + boardGap(rows);
   h += '<div class="tw"><table><thead><tr><th></th><th>Design</th><th>Colour</th><th>Size</th><th class="n">Pending qty</th><th class="n">Allotted</th><th class="n">Short</th></tr></thead><tbody>';
-  const shown = rows.slice(0, S.limit.design);
-  for (const r of shown) {
+  for (const r of rows) {
     const open = S.open.has(r.key);
     const short = r.qty - r.allotted;
     h += '<tr class="clik" data-k="' + esc(r.key) + '"><td class="tw-x">' + (open ? '&minus;' : '+') + '</td>' +
-      '<td>DES-' + esc(r.design) + '</td><td>' + esc(title(r.color)) + '</td><td>' + esc(r.size) + '</td>' +
+      '<td>DES-' + esc(r.design) + '</td><td class="wrap">' + esc(title(r.color)) + '</td><td>' + esc(r.size) + '</td>' +
       '<td class="n">' + r.qty + '</td>' +
       '<td class="n ' + (r.allotted ? 'full' : 'none') + '">' + (r.allotted || '—') + '</td>' +
       '<td class="n ' + (short ? 'bal' : 'none') + '">' + (short || '—') + '</td></tr>';
     if (open) h += drillRows(r);
   }
-  h += '</tbody></table></div>';
-  if (rows.length > shown.length) {
-    h += '<button class="more" id="moreDesign">Show the remaining ' + (rows.length - shown.length) + ' rows</button>';
-  }
-  $('#p-design').innerHTML = h;
-  const md = $('#moreDesign');
-  if (md) md.addEventListener('click', () => { S.limit.design += 250; renderDesign(); });
+  $('#p-design').innerHTML = h + '</tbody></table></div>';
+  $('#sortDesign').addEventListener('change', e => { S.sortDesign = e.target.value; renderDesign(); });
   $('#p-design').querySelectorAll('tr.clik').forEach(tr => tr.addEventListener('click', () => {
     const k = tr.dataset.k;
     S.open.has(k) ? S.open.delete(k) : S.open.add(k);
@@ -1389,25 +1413,18 @@ function renderCustomer() {
   let h = '<h2 class="sec">Customer wise pending orders</h2>' +
     '<p class="exp">' + rows.length + ' rows across ' + new Set(rows.map(r => r.ckey)).size + ' parties. ' +
     'Ready date comes from Set Tracker once the two are linked.</p>';
-  h += '<div class="tw"><table><thead><tr><th>Customer</th><th>Design</th><th>Colour</th><th>Size</th><th class="n">Pending qty</th><th>Ready date</th></tr></thead><tbody>';
-  const shown = rows.slice(0, S.limit.cust);
+  h += '<div class="tw"><table><thead><tr><th>Design</th><th>Colour</th><th>Size</th><th class="n">Pending</th><th>Ready date</th></tr></thead><tbody>';
   let last = null;
-  for (const r of shown) {
+  for (const r of rows) {
     if (r.customer !== last) {
-      h += '<tr class="grp"><td colspan="6">' + esc(r.customer) +
+      h += '<tr class="grp"><td colspan="5">' + esc(r.customer) +
         (S.cats[r.ckey] ? ' <span class="tag t-' + S.cats[r.ckey] + '">' + S.cats[r.ckey] + '</span>' : '') + '</td></tr>';
       last = r.customer;
     }
-    h += '<tr><td></td><td>DES-' + esc(r.design) + '</td><td>' + esc(title(r.color)) + '</td><td>' + esc(r.size) + '</td>' +
+    h += '<tr><td>DES-' + esc(r.design) + '</td><td class="wrap">' + esc(title(r.color)) + '</td><td>' + esc(r.size) + '</td>' +
       '<td class="n">' + r.qty + '</td><td>' + arrivalCell(r.design, r.color, r.size) + '</td></tr>';
   }
-  h += '</tbody></table></div>';
-  if (rows.length > shown.length) {
-    h += '<button class="more" id="moreCust">Show the remaining ' + (rows.length - shown.length) + ' rows</button>';
-  }
-  $('#p-cust').innerHTML = h;
-  const mc = $('#moreCust');
-  if (mc) mc.addEventListener('click', () => { S.limit.cust += 250; renderCustomer(); });
+  $('#p-cust').innerHTML = h + '</tbody></table></div>';
 }
 
 /* ---------- parties drawer ---------- */
