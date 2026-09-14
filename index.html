@@ -98,6 +98,10 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
 .fld span{display:block;font-size:12.5px;color:var(--ink-2);margin-bottom:4px}
 .fld input{width:100%}
 .hintline{font-size:12.5px;color:var(--ink-2)}
+.srch{display:flex;gap:6px;align-items:center;margin:0 0 14px}
+.srch input{flex:1 1 auto;font-size:15px;padding:9px 11px}
+.srch .clr{padding:9px 12px;color:var(--ink-2);font-size:17px;line-height:1}
+.hit{color:var(--ink-2);font-size:12.5px;margin:-6px 0 10px}
 .seg{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:12px 0}
 .seg-l{font-size:12.5px;color:var(--ink-2)}
 .seg-b{font-size:13px;padding:7px 12px;border:1px solid var(--rule);background:var(--card);border-radius:3px;color:var(--ink-2)}
@@ -126,8 +130,8 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
 
 <header class="top">
   <h1>Pending &amp; Allotment</h1>
-  <span class="ver">v4.6</span>
-  <span class="chip" id="build">build 4.6</span>
+  <span class="ver">v5.0</span>
+  <span class="chip" id="build">build 4.7</span>
   <span class="chip" id="chip" title="Set Tracker connection">local</span>
 </header>
 <p class="sub-t">Your two pending reports, with stock already allotted against them.</p>
@@ -163,6 +167,9 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
   <label class="inline">Unassigned parties
     <select id="defCat"><option value="R3">R3</option><option value="R2">R2</option><option value="R1">R1</option></select>
   </label>
+  <label class="inline">Stock older than
+    <select id="ageDays"><option>21</option><option selected>30</option><option>45</option><option>60</option></select>
+    days is ready</label>
   <button id="togSources" aria-expanded="false">Sheet links</button>
   <button id="refresh">Refresh from sheet</button>
   <button id="togParties" aria-expanded="false">Party categories</button>
@@ -181,8 +188,20 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
   <button role="tab" data-p="design" aria-selected="false">Design wise pending</button>
 </nav>
 
-<section class="panel show" id="p-cust"><div class="empty">Load the pending order file to see this report.</div></section>
-<section class="panel" id="p-design"><div class="empty">Load the pending order file to see this report.</div></section>
+<section class="panel show" id="p-cust">
+  <div class="srch">
+    <input type="text" id="qCust" placeholder="Search customer, design or colour" autocomplete="off">
+    <button type="button" class="clr" id="clrCust" aria-label="Clear search">&times;</button>
+  </div>
+  <div id="cust-body"><div class="empty">Load the pending order file to see this report.</div></div>
+</section>
+<section class="panel" id="p-design">
+  <div class="srch">
+    <input type="text" id="qDesign" placeholder="Search customer, design or colour" autocomplete="off">
+    <button type="button" class="clr" id="clrDesign" aria-label="Clear search">&times;</button>
+  </div>
+  <div id="design-body"><div class="empty">Load the pending order file to see this report.</div></div>
+</section>
 
 </div>
 <script>
@@ -678,45 +697,75 @@ function lotId(label) {
   return String(label || '').replace(/\(.*$/, '').trim().replace(/\s*-\s*/g, '-');
 }
 
+/* "20 Jul, 2026" -> ms */
+const MON = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+function purchaseDate(v) {
+  const m = String(v || '').match(/(\d{1,2})\s+([A-Za-z]{3})[^\d]*(\d{4})/);
+  if (!m) return null;
+  const mo = MON[m[2].toLowerCase()];
+  return mo === undefined ? null : Date.UTC(+m[3], mo, +m[1]);
+}
+const DAY = 86400000;
+
 const Lots = {
   wip: null,        // "design|color" -> {size: pieces still being made}
   arrivals: null,   // "design|color|size" -> [{lot, pieces, due}]
   openLots: [],
   unmatched: [],
+  toAdd: [],        // cut recently, not on the board — needs tracking
+  ageDays: 30,
 
-  build(purchaseRows, tracker, aliases) {
+  build(purchaseRows, tracker, aliases, ageDays) {
+    this.ageDays = ageDays || 30;
     this.wip = new Map();
     this.arrivals = new Map();
     this.openLots = [];
     this.unmatched = [];
-    if (!purchaseRows || !tracker || !tracker.sets) return this;
+    this.toAdd = [];
+    if (!purchaseRows) return this;
 
     const parts = {};
-    for (const c of (tracker.categories || [])) parts[c.id] = (c.parts || []).map(p => p.key);
+    for (const c of ((tracker && tracker.categories) || [])) parts[c.id] = (c.parts || []).map(p => p.key);
 
-    // one entry per lot, even if the board holds duplicate rows for it
-    const open = new Map();
-    for (const s of tracker.sets) {
-      const req = parts[s.catId] || [];
-      const done = new Set(s.done || []);
-      const stillOpen = req.filter(k => !done.has(k));
-      if (!stillOpen.length) continue;
-      const id = lotId(s.pattern);
-      if (!id) continue;
-      const dates = stillOpen.map(k => (s.dates || {})[k]).filter(Boolean).sort();
-      const due = dates.length ? dates[dates.length - 1] : null;
-      const prev = open.get(id);
-      // keep the earliest known due date when a lot appears twice
-      if (!prev || (due && (!prev.due || due < prev.due))) open.set(id, { id, due, label: s.pattern });
-    }
-
-    // index purchase rows by lot
+    // index purchase rows by lot, and note when each was cut
     const byLot = new Map();
+    const cutOn = new Map();
     for (const r of purchaseRows) {
       const id = lotId(r['Challan No']);
       if (!id) continue;
       if (!byLot.has(id)) byLot.set(id, []);
       byLot.get(id).push(r);
+      const d = purchaseDate(r['Purchase Date']);
+      if (d && (!cutOn.has(id) || d > cutOn.get(id))) cutOn.set(id, d);
+    }
+
+    // what the board says, one entry per lot even if it holds duplicate rows
+    const onBoard = new Map();
+    const open = new Map();
+    for (const s of ((tracker && tracker.sets) || [])) {
+      const id = lotId(s.pattern);
+      if (!id) continue;
+      onBoard.set(id, true);
+      const req = parts[s.catId] || [];
+      const done = new Set(s.done || []);
+      const stillOpen = req.filter(k => !done.has(k));
+      if (!stillOpen.length) continue;
+      // a dash means that stage has not started, so the lot cannot be dated at all
+      const dates = stillOpen.map(k => (s.dates || {})[k]);
+      const due = dates.every(Boolean) ? dates.slice().sort().slice(-1)[0] : null;
+      const prev = open.get(id);
+      if (!prev || (due && (!prev.due || due < prev.due))) open.set(id, { id, due, label: s.pattern });
+    }
+
+    // A lot cut less than ageDays ago has almost certainly not come back yet.
+    // If it is not on the board, it is untracked production: hold it back and
+    // list it so it can be added.
+    const cutoff = Date.now() - this.ageDays * DAY;
+    for (const [id, when] of cutOn) {
+      if (onBoard.has(id)) continue;
+      if (when >= cutoff) {
+        open.set(id, { id, due: null, label: id, offBoard: true, cut: when });
+      }
     }
 
     for (const [id, info] of open) {
@@ -745,13 +794,18 @@ const Lots = {
         }
         pieces += qty;
       }
-      this.openLots.push({ id, label: info.label, due: info.due, pieces });
+      this.openLots.push({
+        id, label: info.label, due: info.due, pieces,
+        offBoard: !!info.offBoard, cut: cutOn.get(id) || null,
+      });
+      if (info.offBoard) this.toAdd.push({ id, pieces, cut: cutOn.get(id), rows });
     }
 
     for (const [k, m] of this.arrivals) {
       this.arrivals.set(k, [...m.values()].sort((a, b) => (a.due || '9999').localeCompare(b.due || '9999')));
     }
     this.openLots.sort((a, b) => b.pieces - a.pieces);
+    this.toAdd.sort((a, b) => (b.cut || 0) - (a.cut || 0));
     return this;
   },
 
@@ -791,6 +845,7 @@ const S = {
   cats: {}, fullOnly: {}, names: {},
   alloc: null, allocRows: [],
   sortDesign: 'design',
+  q: { design: '', cust: '' },
   open: new Set(),      // expanded design rows
   openCust: new Set(),  // expanded customer sub-rows
 };
@@ -1064,6 +1119,14 @@ function shortDate(iso) {
   return +p[2] + ' ' + D_MON[+p[1] - 1];
 }
 
+/* The one number every order needs: when can this actually go out. */
+function dispatchCell(design, color, sizeLabel, ordered, allotted) {
+  if (allotted >= ordered && ordered > 0) return '<span class="ready">ready now</span>';
+  const arr = arrivalCell(design, color, sizeLabel);
+  if (allotted > 0) return '<span class="part">part ready</span> · ' + arr;
+  return arr;
+}
+
 function arrivalCell(design, color, sizeLabel) {
   const sizes = expandSize(sizeLabel);
   if (!sizes || !Lots.arrivals) return readyCell(design, sizeLabel);
@@ -1228,7 +1291,7 @@ function rebuild() {
 
   const netted = S.stockRows ? netStock(S.stockRows, { stockColumn: 'Current Stock' }).stock : new Map();
   const board = Live.on ? { sets: Live.sets, categories: Live.categories || [] } : S.track;
-  Lots.build(S.purchRows, board, {});
+  Lots.build(S.purchRows, board, {}, Number($('#ageDays').value || 30));
   const split = Lots.freeStock(netted);
   S.stockMap = split.free;
   S.nettedTotal = totalPieces(netted);
@@ -1268,8 +1331,8 @@ function paintIntake() {
 }
 
 function paintEmpty() {
-  $('#p-cust').innerHTML = '<div class="empty">Load the pending order file to see this report.</div>';
-  $('#p-design').innerHTML = '<div class="empty">Load the pending order file to see this report.</div>';
+  $('#cust-body').innerHTML = '<div class="empty">Load the pending order file to see this report.</div>';
+  $('#design-body').innerHTML = '<div class="empty">Load the pending order file to see this report.</div>';
 }
 
 function checkColours() {
@@ -1285,6 +1348,13 @@ function checkColours() {
 }
 
 /* ---------- design wise, with drill-down ---------- */
+/* one query, matched against design number, colour, or any party on the row */
+function hits(q, design, color, customers) {
+  if (!q) return true;
+  const hay = ('des-' + design + ' ' + design + ' ' + color + ' ' + (customers || '')).toLowerCase();
+  return q.split(/\s+/).filter(Boolean).every(term => hay.includes(term));
+}
+
 function cmpDesign(a, b) {
   return a.design.localeCompare(b.design, undefined, { numeric: true })
     || a.color.localeCompare(b.color)
@@ -1311,6 +1381,15 @@ function designWiseRows() {
 }
 
 /* short rows with nothing on the production board — the real blind spot */
+function toAddBanner() {
+  if (!Lots.toAdd || !Lots.toAdd.length) return '';
+  const list = Lots.toAdd.map(t => '<b>' + esc(t.id) + '</b> ' + t.pieces + ' pcs, cut ' +
+    shortDate(new Date(t.cut).toISOString().slice(0, 10))).join(' · ');
+  return '<div class="note bad"><b>' + Lots.toAdd.length + ' lot' + (Lots.toAdd.length > 1 ? 's' : '') +
+    ' cut in the last ' + Lots.ageDays + ' days are not on the production board.</b> ' +
+    'They are held back from allotment and have no date until you add them to Set Tracker. ' + list + '</div>';
+}
+
 function wipBanner() {
   if (!S.purchRows) {
     return '<div class="note">No purchase file loaded. Stock is being treated as fully available, which overstates it — purchase entries are made at cutting, so uncut and unstitched goods sit inside Current Stock.</div>';
@@ -1334,15 +1413,18 @@ function boardGap(rows) {
 }
 
 function renderDesign() {
-  const rows = designWiseRows();
+  const all = designWiseRows();
+  const q = S.q.design.trim().toLowerCase();
+  const rows = q ? all.filter(r => hits(q, r.design, r.color, r.lines.map(l => l.customer).join(' '))) : all;
   let h = '<h2 class="sec">Design wise pending orders</h2>' +
     '<p class="exp">' + rows.length + ' rows · ' + rows.reduce((t, r) => t + r.qty, 0) + ' pieces pending · ' +
     rows.reduce((t, r) => t + r.allotted, 0) + ' allotted. Tap any row for the parties behind it.</p>' +
+    (q ? '<p class="hit">Showing ' + rows.length + ' of ' + all.length + ' rows matching “' + esc(S.q.design.trim()) + '”</p>' : '') +
     '<div class="seg"><span class="seg-l">Sort</span>' +
     [['design', 'design no.'], ['qty', 'most ordered'], ['short', 'most short']]
       .map(o => '<button type="button" class="seg-b' + (S.sortDesign === o[0] ? ' on' : '') +
         '" data-sort="' + o[0] + '">' + o[1] + '</button>').join('') +
-    '</div>' + wipBanner() + boardGap(rows);
+    '</div>' + toAddBanner() + wipBanner() + boardGap(all);
   h += '<div class="tw"><table><thead><tr><th></th><th>Design</th><th>Colour</th><th>Size</th><th class="n">Pend</th><th class="n">Allot</th><th class="n">Short</th></tr></thead><tbody>';
   for (const r of rows) {
     const open = S.open.has(r.key);
@@ -1354,7 +1436,9 @@ function renderDesign() {
       '<td class="n ' + (short ? 'bal' : 'none') + '">' + (short || '—') + '</td></tr>';
     if (open) h += drillRows(r);
   }
-  $('#p-design').innerHTML = h + '</tbody></table></div>';
+  $('#design-body').innerHTML = rows.length
+    ? h + '</tbody></table></div>'
+    : h.split('<div class="tw">')[0] + '<div class="empty">Nothing matches that search.</div>';
 }
 
 /* Any script error becomes visible instead of silently killing a render. */
@@ -1407,7 +1491,7 @@ function drillRows(g) {
         '<span class="dk">Order</span> ' + esc(k.order || '—') +
         ' <span class="dk">Dated</span> ' + esc(k.date || '—') +
         (k.ranges.length ? ' <span class="dk">Sizes reserved</span> ' + k.ranges.map(x => esc(x.size) + '&times;' + x.pieces).join(', ') : '') +
-        (k.balance ? ' <span class="dk">Balance arrives</span> ' + arrivalCell(g.design, g.color, g.size) : ' <span class="dk">Ready to dispatch from stock</span>') +
+        ' <span class="dk">Dispatch</span> ' + dispatchCell(g.design, g.color, g.size, k.ordered, k.allocated) +
         '</td></tr>';
     }
   }
@@ -1419,29 +1503,41 @@ function renderCustomer() {
   const map = new Map();
   for (const ln of S.lines) {
     const key = ln.ckey + '|' + ln.design + '|' + ln.color + '|' + ln.sizeLabel;
-    if (!map.has(key)) map.set(key, { customer: ln.customer, ckey: ln.ckey, design: ln.design, color: ln.color, size: ln.sizeLabel, qty: 0 });
+    if (!map.has(key)) map.set(key, { customer: ln.customer, ckey: ln.ckey, design: ln.design, color: ln.color, size: ln.sizeLabel, qty: 0, got: 0 });
     map.get(key).qty += ln.qty;
   }
-  const rows = [...map.values()].sort((a, b) => a.customer.localeCompare(b.customer)
+  for (const r of S.allocRows) {
+    const g = map.get(custKey(r.customer) + '|' + r.design + '|' + r.color + '|' + r.size);
+    if (g) g.got += r.allocated;
+  }
+  const q = S.q.cust.trim().toLowerCase();
+  const rows = [...map.values()]
+    .filter(r => hits(q, r.design, r.color, r.customer))
+    .sort((a, b) => a.customer.localeCompare(b.customer)
     || a.design.localeCompare(b.design, undefined, { numeric: true })
     || a.color.localeCompare(b.color)
     || String(a.size).localeCompare(String(b.size), undefined, { numeric: true }));
 
   let h = '<h2 class="sec">Customer wise pending orders</h2>' +
-    '<p class="exp">' + rows.length + ' rows across ' + new Set(rows.map(r => r.ckey)).size + ' parties. ' +
-    'Ready date comes from Set Tracker once the two are linked.</p>';
-  h += '<div class="tw"><table><thead><tr><th>Design</th><th>Colour</th><th>Size</th><th class="n">Pending</th><th>Ready date</th></tr></thead><tbody>';
+    '<p class="exp">' + rows.length + ' rows across ' + new Set(rows.map(r => r.ckey)).size + ' parties · ' +
+    rows.reduce((t, r) => t + r.qty, 0) + ' pieces pending.</p>' +
+    (q ? '<p class="hit">Matching “' + esc(S.q.cust.trim()) + '”</p>' : '');
+  h += '<div class="tw"><table><thead><tr><th>Design</th><th>Colour</th><th>Size</th><th class="n">Pend</th><th class="n">Allot</th><th>Dispatch</th></tr></thead><tbody>';
   let last = null;
   for (const r of rows) {
     if (r.customer !== last) {
-      h += '<tr class="grp"><td colspan="5">' + esc(r.customer) +
+      h += '<tr class="grp"><td colspan="6">' + esc(r.customer) +
         (S.cats[r.ckey] ? ' <span class="tag t-' + S.cats[r.ckey] + '">' + S.cats[r.ckey] + '</span>' : '') + '</td></tr>';
       last = r.customer;
     }
     h += '<tr><td>DES-' + esc(r.design) + '</td><td class="wrap">' + esc(title(r.color)) + '</td><td>' + esc(r.size) + '</td>' +
-      '<td class="n">' + r.qty + '</td><td>' + arrivalCell(r.design, r.color, r.size) + '</td></tr>';
+      '<td class="n">' + r.qty + '</td>' +
+      '<td class="n ' + (r.got ? 'full' : 'none') + '">' + (r.got || '—') + '</td>' +
+      '<td>' + dispatchCell(r.design, r.color, r.size, r.qty, r.got) + '</td></tr>';
   }
-  $('#p-cust').innerHTML = h + '</tbody></table></div>';
+  $('#cust-body').innerHTML = rows.length
+    ? h + '</tbody></table></div>'
+    : h + '<div class="empty">Nothing matches that search.</div>';
 }
 
 /* ---------- parties drawer ---------- */
@@ -1568,6 +1664,22 @@ $('#togSources').addEventListener('click', () => {
 });
 $('#refresh').addEventListener('click', () => Sheets.pullAll(false));
 
+let qTimer;
+function wireSearch(inputId, clearId, key, render) {
+  const el = $('#' + inputId);
+  el.addEventListener('input', () => {
+    S.q[key] = el.value;
+    clearTimeout(qTimer);
+    qTimer = setTimeout(render, 140);   // 500 rows redraw, so wait for a pause
+  });
+  $('#' + clearId).addEventListener('click', () => {
+    el.value = ''; S.q[key] = ''; el.focus(); render();
+  });
+}
+wireSearch('qCust', 'clrCust', 'cust', renderCustomer);
+wireSearch('qDesign', 'clrDesign', 'design', renderDesign);
+
+$('#ageDays').addEventListener('change', rebuild);
 $('#mode').addEventListener('change', rebuild);
 $('#defCat').addEventListener('change', rebuild);
 $('#clear').addEventListener('click', () => {
