@@ -60,8 +60,8 @@ section.panel{display:none;padding-top:18px}
 section.panel.show{display:block}
 
 .tw{overflow-x:auto;border:1px solid var(--rule);border-radius:3px;background:var(--card)}
-/* skip painting rows that are off screen — keeps 500+ rows smooth */
-tbody tr{content-visibility:auto;contain-intrinsic-size:0 34px}
+/* no content-visibility here: row heights vary once colours wrap, and a wrong
+   size estimate shows as blank bands while scrolling */
 table{border-collapse:collapse;width:100%;font-size:13.5px}
 th,td{padding:7px 11px;text-align:left;border-bottom:1px solid var(--rule-2);white-space:nowrap}
 th{background:var(--card);font-weight:600;font-size:12px;color:var(--ink-2);border-bottom:1px solid var(--rule)}
@@ -130,8 +130,8 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
 
 <header class="top">
   <h1>Pending &amp; Allotment</h1>
-  <span class="ver">v5.0</span>
-  <span class="chip" id="build">build 4.7</span>
+  <span class="ver">v5.1</span>
+  <span class="chip" id="build">build 5.1</span>
   <span class="chip" id="chip" title="Set Tracker connection">local</span>
 </header>
 <p class="sub-t">Your two pending reports, with stock already allotted against them.</p>
@@ -1452,6 +1452,17 @@ window.addEventListener('unhandledrejection', ev => {
 
 /* One set of listeners on the document, bound at startup. Re-rendering a panel
    used to throw its listeners away with it; nothing to lose now. */
+/* Toggling redraws the table under the finger, and Android sometimes dispatches
+   a second click at the same spot afterwards — which would shut the row you just
+   opened. One toggle per key per gesture. */
+let lastTap = { k: '', t: 0 };
+function onceperTap(k) {
+  const now = Date.now();
+  if (lastTap.k === k && now - lastTap.t < 500) return false;
+  lastTap = { k, t: now };
+  return true;
+}
+
 document.addEventListener('click', e => {
   const sb = e.target.closest && e.target.closest('[data-sort]');
   if (sb) {
@@ -1461,12 +1472,14 @@ document.addEventListener('click', e => {
   const sub = e.target.closest && e.target.closest('tr.clik2');
   if (sub) {
     const k = sub.dataset.k;
+    if (!onceperTap('sub:' + k)) return;
     S.openCust.has(k) ? S.openCust.delete(k) : S.openCust.add(k);
     return renderDesign();
   }
   const row = e.target.closest && e.target.closest('tr.clik');
   if (row) {
     const k = row.dataset.k;
+    if (!onceperTap('row:' + k)) return;
     S.open.has(k) ? S.open.delete(k) : S.open.add(k);
     renderDesign();
   }
@@ -1670,7 +1683,11 @@ function wireSearch(inputId, clearId, key, render) {
   el.addEventListener('input', () => {
     S.q[key] = el.value;
     clearTimeout(qTimer);
-    qTimer = setTimeout(render, 140);   // 500 rows redraw, so wait for a pause
+    qTimer = setTimeout(() => {
+      render();
+      const box = el.getBoundingClientRect();
+      if (box.top < 0) el.scrollIntoView({ block: 'start' });
+    }, 140);   // 500 rows redraw, so wait for a pause
   });
   $('#' + clearId).addEventListener('click', () => {
     el.value = ''; S.q[key] = ''; el.focus(); render();
