@@ -98,6 +98,31 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
 .fld span{display:block;font-size:12.5px;color:var(--ink-2);margin-bottom:4px}
 .fld input{width:100%}
 .hintline{font-size:12.5px;color:var(--ink-2)}
+/* production board — matches Set Tracker's status language */
+.sumline{display:flex;gap:14px;flex-wrap:wrap;margin:0 0 14px;font-size:12.5px;color:var(--ink-2)}
+.sm{display:inline-flex;align-items:center;gap:5px}
+.sdot{width:8px;height:8px;border-radius:50%;display:inline-block;flex:0 0 auto}
+.sdot.good{background:#1E8A55}.sdot.bad{background:#CF3B33}
+.sdot.warn{background:#C07A12}.sdot.done{background:#5B6470}
+.gt{display:flex;justify-content:space-between;align-items:baseline;margin:18px 0 7px;font-size:12.5px;font-weight:600;color:var(--ink-2)}
+.gt .ct{font-weight:400}
+.lot{background:var(--card);border:1px solid var(--rule);border-radius:4px;padding:11px 13px;margin-bottom:7px;cursor:pointer}
+.lot.is-done{opacity:.62}
+.lot-h{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.lot-h b{font-size:15px;letter-spacing:-.01em}
+.lot-m{font-size:12px;color:var(--ink-2)}
+.lot-h .ready,.lot-h .pend{margin-left:auto;font-size:12.5px}
+.star{color:#2563EB}
+.parts{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}
+.pt{font-size:12px;padding:3px 8px;border-radius:3px;background:var(--good-bg);color:var(--good);white-space:nowrap}
+.pt-done{background:var(--rule-2);color:var(--ink-2)}
+.pt-empty{background:transparent;color:var(--ink-2);border:1px dashed var(--rule)}
+.lot-n{font-size:12px;color:var(--ink-2);margin-top:7px;font-style:italic}
+.bd{margin-top:11px;border-top:1px solid var(--rule-2);padding-top:10px}
+.bd-r{font-size:13px;margin-bottom:9px}
+.bd-t{color:var(--ink-2);font-size:12px;margin-left:7px}
+.bd-s{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px}
+.bd-s span{font-size:12px;padding:2px 7px;background:var(--sub);border:1px solid var(--rule-2);border-radius:3px}
 .srch{display:flex;gap:6px;align-items:center;margin:0 0 14px}
 .srch input{flex:1 1 auto;font-size:15px;padding:9px 11px}
 .srch .clr{padding:9px 12px;color:var(--ink-2);font-size:17px;line-height:1}
@@ -130,8 +155,8 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
 
 <header class="top">
   <h1>Pending &amp; Allotment</h1>
-  <span class="ver">v5.1</span>
-  <span class="chip" id="build">build 5.1</span>
+  <span class="ver">v6.0</span>
+  <span class="chip" id="build">build 6.0</span>
   <span class="chip" id="chip" title="Set Tracker connection">local</span>
 </header>
 <p class="sub-t">Your two pending reports, with stock already allotted against them.</p>
@@ -186,6 +211,7 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
 <nav class="tabs" role="tablist">
   <button role="tab" data-p="cust" aria-selected="true">Customer wise pending</button>
   <button role="tab" data-p="design" aria-selected="false">Design wise pending</button>
+  <button role="tab" data-p="prod" aria-selected="false">Production</button>
 </nav>
 
 <section class="panel show" id="p-cust">
@@ -194,6 +220,9 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
     <button type="button" class="clr" id="clrCust" aria-label="Clear search">&times;</button>
   </div>
   <div id="cust-body"><div class="empty">Load the pending order file to see this report.</div></div>
+</section>
+<section class="panel" id="p-prod">
+  <div id="prod-body"><div class="empty">Load the purchase inward file — this board is built from it.</div></div>
 </section>
 <section class="panel" id="p-design">
   <div class="srch">
@@ -713,6 +742,7 @@ const Lots = {
   openLots: [],
   unmatched: [],
   toAdd: [],        // cut recently, not on the board — needs tracking
+  recent: [],       // every lot cut inside the age window, board or not
   ageDays: 30,
 
   build(purchaseRows, tracker, aliases, ageDays) {
@@ -722,6 +752,7 @@ const Lots = {
     this.openLots = [];
     this.unmatched = [];
     this.toAdd = [];
+    this.recent = [];
     if (!purchaseRows) return this;
 
     const parts = {};
@@ -804,6 +835,17 @@ const Lots = {
     for (const [k, m] of this.arrivals) {
       this.arrivals.set(k, [...m.values()].sort((a, b) => (a.due || '9999').localeCompare(b.due || '9999')));
     }
+    // everything cut inside the window, whether or not the board knows about it
+    for (const [id, when] of cutOn) {
+      if (when < cutoff) continue;
+      const rows = byLot.get(id) || [];
+      this.recent.push({
+        id, cut: when, onBoard: onBoard.has(id),
+        pieces: rows.reduce((t, r) => t + (Number(r['Quantity']) || 0), 0),
+        rows,
+      });
+    }
+    this.recent.sort((a, b) => (b.cut || 0) - (a.cut || 0));
     this.openLots.sort((a, b) => b.pieces - a.pieces);
     this.toAdd.sort((a, b) => (b.cut || 0) - (a.cut || 0));
     return this;
@@ -828,6 +870,28 @@ const Lots = {
     return { free, held };
   },
 
+  /* lot contents as the purchase entry recorded them */
+  breakdown(rows) {
+    const out = new Map();
+    for (const r of rows) {
+      const design = stripDes(r['Design Name Without Prefix'] || r['Design Number']);
+      const color = String(r['Color'] || '').trim() || '—';
+      const size = String(r['Size'] || '').trim() || '—';
+      const qty = Number(r['Quantity'] || 0);
+      if (!qty) continue;
+      const k = design + '|' + color;
+      if (!out.has(k)) out.set(k, { design, color, sizes: [], total: 0 });
+      const g = out.get(k);
+      const hit = g.sizes.find(x => x.size === size);
+      if (hit) hit.qty += qty; else g.sizes.push({ size, qty });
+      g.total += qty;
+    }
+    for (const [, g] of out) {
+      g.sizes.sort((a, b) => String(a.size).localeCompare(String(b.size), undefined, { numeric: true }));
+    }
+    return [...out.values()].sort((a, b) => a.design.localeCompare(b.design, undefined, { numeric: true }) || a.color.localeCompare(b.color));
+  },
+
   /* what is coming for one design/colour/size, soonest first */
   arriving(design, color, size) {
     if (!this.arrivals) return [];
@@ -845,6 +909,7 @@ const S = {
   cats: {}, fullOnly: {}, names: {},
   alloc: null, allocRows: [],
   sortDesign: 'design',
+  openLot: new Set(),
   q: { design: '', cust: '' },
   open: new Set(),      // expanded design rows
   openCust: new Set(),  // expanded customer sub-rows
@@ -947,13 +1012,16 @@ const Sheets = {
   },
 
   async pullAll(quiet) {
+    if (this.busy) return;
     if (!S.src.orders && !S.src.stock && !S.src.purchase) return;
+    this.busy = true;
     $('#refresh').textContent = 'Pulling…';
     const a = await this.pull('orders', quiet);
     const b = await this.pull('stock', quiet);
     const c = await this.pull('purchase', quiet);
     $('#refresh').textContent = 'Refresh from sheet';
-    if (a || b || c) { S.open.clear(); S.openCust.clear(); save(); rebuild(); if (!quiet) msg(''); }
+    this.busy = false;
+    if (a || b || c) { save(); rebuild(); if (!quiet) msg(''); }
   },
 };
 
@@ -989,8 +1057,6 @@ const Live = {
     try {
       firebase.initializeApp(FIREBASE_CONFIG);
       const db = firebase.firestore();
-Live.start();
-Sheets.pullAll(false);
       this.chip('wait', 'connecting');
 
       db.collection('sets').onSnapshot(
@@ -1308,7 +1374,7 @@ function rebuild() {
   S.allocRows = allocationRows(S.lines, r.alloc, cats, defCat);
   S.catOf = cats; S.defCat = defCat;
 
-  renderDesign(); renderCustomer(); renderParties();
+  renderDesign(); renderCustomer(); renderProduction(); renderParties();
   $('#exportBtn').disabled = false;
   checkColours();
 }
@@ -1333,6 +1399,7 @@ function paintIntake() {
 function paintEmpty() {
   $('#cust-body').innerHTML = '<div class="empty">Load the pending order file to see this report.</div>';
   $('#design-body').innerHTML = '<div class="empty">Load the pending order file to see this report.</div>';
+  renderProduction();
 }
 
 function checkColours() {
@@ -1464,6 +1531,13 @@ function onceperTap(k) {
 }
 
 document.addEventListener('click', e => {
+  const lotEl = e.target.closest && e.target.closest('[data-lot]');
+  if (lotEl) {
+    const k = lotEl.dataset.lot;
+    if (!onceperTap('lot:' + k)) return;
+    S.openLot.has(k) ? S.openLot.delete(k) : S.openLot.add(k);
+    return renderProduction();
+  }
   const sb = e.target.closest && e.target.closest('[data-sort]');
   if (sb) {
     S.sortDesign = sb.dataset.sort;
@@ -1551,6 +1625,148 @@ function renderCustomer() {
   $('#cust-body').innerHTML = rows.length
     ? h + '</tbody></table></div>'
     : h + '<div class="empty">Nothing matches that search.</div>';
+}
+
+/* ---------- production board (read-only mirror of Set Tracker) ----------
+   Rows come from purchase inward: every lot cut inside the age window.
+   Stages, dates and ticks come from the board. Dates are entered in Set
+   Tracker itself; nothing here writes. */
+
+const ROLE_ORDER = ['main', 'inner', 'bottoms', 'extra'];
+const DOT = { tight: 'good', spread: 'bad', incomplete: 'warn', done: 'done' };
+
+function boardData() {
+  if (Live.on && Live.sets) return { sets: Live.sets, categories: Live.categories || (S.track && S.track.categories) || [] };
+  return { sets: (S.track && S.track.sets) || [], categories: (S.track && S.track.categories) || [] };
+}
+
+/* A lot with no board entry borrows its category from a sibling of the same
+   design number — 1331-4 follows 1331-2 — because purchase never records it. */
+function inferCat(lotIdStr, sets, byId) {
+  const direct = byId.get(lotIdStr);
+  if (direct) return { catId: direct.catId, via: null };
+  const base = String(lotIdStr).split('-')[0];
+  for (const st of sets) {
+    const sid = lotId(st.pattern);
+    if (sid !== lotIdStr && String(sid).split('-')[0] === base && st.catId) {
+      return { catId: st.catId, via: st.pattern };
+    }
+  }
+  return { catId: null, via: null };
+}
+
+function productionRows() {
+  const { sets, categories } = boardData();
+  const byId = new Map();
+  for (const st of sets) byId.set(lotId(st.pattern), st);
+  const cats = new Map(categories.map(c => [c.id, c]));
+  const win = (S.track && S.track.window) || 7;
+
+  return (Lots.recent || []).map(lot => {
+    const st = byId.get(lot.id) || null;
+    const guess = inferCat(lot.id, sets, byId);
+    const cat = cats.get(st ? st.catId : guess.catId) || null;
+    const parts = (cat && cat.parts) || [];
+    const dates = (st && st.dates) || {};
+    const done = new Set((st && st.done) || []);
+
+    const cells = parts.map(p => ({
+      key: p.key, label: p.label, role: p.role, optional: p.optional,
+      done: done.has(p.key), date: dates[p.key] || null,
+    }));
+    const req = cells.filter(c => !c.optional);
+    const dated = cells.filter(c => c.date).map(c => c.date).sort();
+    const spread = dated.length > 1
+      ? Math.round((Date.parse(dated[dated.length - 1]) - Date.parse(dated[0])) / 86400000) : 0;
+    const allReqDone = req.length > 0 && req.every(c => c.done);
+    // no category means no stage list at all — that is untracked, not on schedule
+    const missing = !parts.length || req.some(c => !c.date && !c.done);
+    const status = allReqDone ? 'done' : (missing ? 'incomplete' : (spread > win ? 'spread' : 'tight'));
+    // every required stage dated means the lot lands when the slowest one does
+    const ready = (!missing && dated.length) ? dated[dated.length - 1] : null;
+
+    return {
+      lot, st, cat, cells, status, spread, ready, win,
+      label: st ? st.pattern : lot.id,
+      priority: !!(st && st.priority),
+      note: (st && st.note) || '',
+      catVia: st ? null : guess.via,
+    };
+  });
+}
+
+function renderProduction() {
+  const rows = productionRows();
+  if (!S.purchRows) {
+    return void ($('#prod-body').innerHTML =
+      '<div class="empty">Load the purchase inward file — this board is built from it.</div>');
+  }
+  const count = { tight: 0, spread: 0, incomplete: 0, done: 0 };
+  for (const r of rows) count[r.status]++;
+
+  let h = '<h2 class="sec">Production</h2>' +
+    '<p class="exp">' + rows.length + ' lots cut in the last ' + Lots.ageDays + ' days, straight from purchase inward. ' +
+    'Dates and ticks are read from Set Tracker — enter them there. Tap a lot for its pieces by colour and size.</p>';
+
+  h += '<div class="sumline">' +
+    ['tight', 'spread', 'incomplete', 'done'].map(k =>
+      '<span class="sm"><i class="sdot ' + DOT[k] + '"></i>' + count[k] + ' ' + k + '</span>').join('') +
+    '</div>';
+
+  const noCat = rows.filter(r => !r.cat);
+  if (noCat.length) {
+    h += '<div class="note bad"><b>' + noCat.length + ' lot' + (noCat.length > 1 ? 's have' : ' has') +
+      ' no category</b> — ' + noCat.map(r => esc(r.label)).join(', ') +
+      '. Add them in Set Tracker and their stages will appear here.</div>';
+  }
+
+  // grouped the way the board groups them
+  const groups = new Map();
+  for (const r of rows) {
+    const k = r.cat ? r.cat.name : 'Not on the board';
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(r);
+  }
+
+  for (const [name, items] of [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    h += '<div class="gt"><span>' + esc(name) + '</span><span class="ct">' + items.length + '</span></div>';
+    for (const r of items) h += lotCard(r);
+  }
+  $('#prod-body').innerHTML = h;
+}
+
+function lotCard(r) {
+  const open = S.openLot.has(r.lot.id);
+  let h = '<div class="lot' + (r.status === 'done' ? ' is-done' : '') + '" data-lot="' + esc(r.lot.id) + '">' +
+    '<div class="lot-h"><i class="sdot ' + DOT[r.status] + '"></i>' +
+    (r.priority ? '<span class="star">★</span>' : '') +
+    '<b>' + esc(r.label) + '</b>' +
+    '<span class="lot-m">' + r.lot.pieces + ' pcs · cut ' + shortDate(new Date(r.lot.cut).toISOString().slice(0, 10)) + '</span>' +
+    (r.ready ? '<span class="ready">' + shortDate(r.ready) + '</span>'
+             : '<span class="pend">' + (r.cat ? 'no date' : 'not tracked') + '</span>') +
+    '</div>';
+
+  if (r.cells.length) {
+    h += '<div class="parts">' + ROLE_ORDER.map(role => {
+      const ps = r.cells.filter(c => c.role === role);
+      if (!ps.length) return '';
+      return ps.map(c => '<span class="pt' + (c.done ? ' pt-done' : (c.date ? '' : ' pt-empty')) + '">' +
+        esc(c.label) + (c.done ? ' ✓' : (c.date ? ' ' + shortDate(c.date) : ' —')) + '</span>').join('');
+    }).join('') + '</div>';
+  }
+  if (r.catVia) h += '<div class="lot-n">category taken from ' + esc(r.catVia) + '</div>';
+  if (r.note) h += '<div class="lot-n">' + esc(r.note) + '</div>';
+
+  if (open) {
+    h += '<div class="bd">';
+    for (const g of Lots.breakdown(r.lot.rows)) {
+      h += '<div class="bd-r"><b>DES-' + esc(g.design) + '</b> ' + esc(g.color) +
+        '<span class="bd-t">' + g.total + ' pcs</span><div class="bd-s">' +
+        g.sizes.map(x => '<span>' + esc(x.size) + ' × ' + x.qty + '</span>').join('') + '</div></div>';
+    }
+    h += '</div>';
+  }
+  return h + '</div>';
 }
 
 /* ---------- parties drawer ---------- */
