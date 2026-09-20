@@ -155,8 +155,8 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
 
 <header class="top">
   <h1>Pending &amp; Allotment</h1>
-  <span class="ver">v6.0</span>
-  <span class="chip" id="build">build 6.0</span>
+  <span class="ver">v6.1</span>
+  <span class="chip" id="build">build 6.1</span>
   <span class="chip" id="chip" title="Set Tracker connection">local</span>
 </header>
 <p class="sub-t">Your two pending reports, with stock already allotted against them.</p>
@@ -743,6 +743,7 @@ const Lots = {
   unmatched: [],
   toAdd: [],        // cut recently, not on the board — needs tracking
   recent: [],       // every lot cut inside the age window, board or not
+  all: null,        // every lot the purchase file knows, by id
   ageDays: 30,
 
   build(purchaseRows, tracker, aliases, ageDays) {
@@ -753,6 +754,7 @@ const Lots = {
     this.unmatched = [];
     this.toAdd = [];
     this.recent = [];
+    this.all = new Map();
     if (!purchaseRows) return this;
 
     const parts = {};
@@ -835,6 +837,15 @@ const Lots = {
     for (const [k, m] of this.arrivals) {
       this.arrivals.set(k, [...m.values()].sort((a, b) => (a.due || '9999').localeCompare(b.due || '9999')));
     }
+    // every lot purchase knows about, so a board row can show its contents
+    // however long ago it was cut
+    for (const [id, rows] of byLot) {
+      this.all.set(id, {
+        id, cut: cutOn.get(id) || null, rows,
+        pieces: rows.reduce((t, r) => t + (Number(r['Quantity']) || 0), 0),
+      });
+    }
+
     // everything cut inside the window, whether or not the board knows about it
     for (const [id, when] of cutOn) {
       if (when < cutoff) continue;
@@ -1042,7 +1053,7 @@ const FIREBASE_CONFIG = {
 };
 
 const Live = {
-  sets: null, categories: null, on: false,
+  sets: null, categories: null, variableStages: null, on: false,
 
   chip(state, text) {
     const c = $('#chip');
@@ -1076,6 +1087,7 @@ const Live = {
           for (const d of snap.docs) {
             const v = d.data();
             if (v && Array.isArray(v.categories)) this.categories = v.categories;
+            if (v && Array.isArray(v.variableStages)) this.variableStages = v.variableStages;
           }
           this.apply();
         },
@@ -1103,7 +1115,7 @@ const Live = {
         'It only has to be done once; after that the live feed works on its own.', 'bad');
       return;
     }
-    SetTracker.load({ sets: this.sets, categories: cats });
+    SetTracker.load({ sets: this.sets, categories: cats, variableStages: this.variableStages || (S.track && S.track.variableStages) || [] });
     S.liveCount = this.sets.length;
     this.chip('live', 'board live · ' + SetTracker.index.size);
     if (S.lines.length) { renderDesign(); renderCustomer(); }
@@ -1121,8 +1133,35 @@ const Live = {
 const SetTracker = {
   raw: null, index: null,
 
+  /* A piece with an unfinished post-process (washing, printing) does not land on
+     its entered date — the board pushes it out by that process's days. */
+  varDays(set, partKey) {
+    const ids = ((set.partVars || {})[partKey]) || [];
+    if (!ids.length) return 0;
+    const doneIds = ((set.partVarsDone || {})[partKey]) || [];
+    return (this.stages || []).filter(v => ids.includes(v.id) && !doneIds.includes(v.id))
+      .reduce((t, v) => t + (parseInt(v.days, 10) || 0), 0);
+  },
+
+  effDate(set, partKey) {
+    const raw = (set.dates || {})[partKey];
+    if (!raw) return null;
+    const add = this.varDays(set, partKey);
+    if (!add) return raw;
+    const d = new Date(raw + 'T00:00:00Z');
+    d.setUTCDate(d.getUTCDate() + add);
+    return d.toISOString().slice(0, 10);
+  },
+
   load(json) {
     this.raw = json;
+    // Set Tracker writes these to meta/config, so the live feed carries them.
+    // The export file leaves them out, so fall back to the board's own defaults.
+    this.stages = (json.variableStages && json.variableStages.length)
+      ? json.variableStages
+      : [{ id: 'vs_wash', name: 'Washing', days: 7 },
+         { id: 'vs_print', name: 'Screen printing', days: 6 },
+         { id: 'vs_button', name: 'Buttoning', days: 2 }];
     const parts = {};
     for (const c of (json.categories || [])) {
       parts[c.id] = (c.parts || []).map(p => ({ key: p.key, label: p.label, optional: !!p.optional }));
@@ -1139,7 +1178,7 @@ const SetTracker = {
       const dates = s.dates || {};
       const open = req.filter(p => !done.has(p.key));
       const missing = open.filter(p => !dates[p.key] && !p.optional).map(p => p.label);
-      const known = open.map(p => dates[p.key]).filter(Boolean);
+      const known = open.map(p => this.effDate(s, p.key)).filter(Boolean);
       const lot = {
         label, base,
         lo: sz ? +sz[1] : null, hi: sz ? +sz[2] : null,
@@ -1636,8 +1675,18 @@ const ROLE_ORDER = ['main', 'inner', 'bottoms', 'extra'];
 const DOT = { tight: 'good', spread: 'bad', incomplete: 'warn', done: 'done' };
 
 function boardData() {
-  if (Live.on && Live.sets) return { sets: Live.sets, categories: Live.categories || (S.track && S.track.categories) || [] };
-  return { sets: (S.track && S.track.sets) || [], categories: (S.track && S.track.categories) || [] };
+  if (Live.on && Live.sets) {
+    return {
+      sets: Live.sets,
+      categories: Live.categories || (S.track && S.track.categories) || [],
+      variableStages: Live.variableStages || (S.track && S.track.variableStages) || [],
+    };
+  }
+  return {
+    sets: (S.track && S.track.sets) || [],
+    categories: (S.track && S.track.categories) || [],
+    variableStages: (S.track && S.track.variableStages) || [],
+  };
 }
 
 /* A lot with no board entry borrows its category from a sibling of the same
@@ -1662,7 +1711,18 @@ function productionRows() {
   const cats = new Map(categories.map(c => [c.id, c]));
   const win = (S.track && S.track.window) || 7;
 
-  return (Lots.recent || []).map(lot => {
+  // the board's own list first, then anything cut recently it has not caught up with
+  const byLotPurchase = Lots.all || new Map();
+  const ids = [];
+  const seen = new Set();
+  for (const st of sets) {
+    const id = lotId(st.pattern);
+    if (id && !seen.has(id)) { seen.add(id); ids.push(id); }
+  }
+  for (const l of (Lots.recent || [])) if (!seen.has(l.id)) { seen.add(l.id); ids.push(l.id); }
+
+  return ids.map(id => {
+    const lot = byLotPurchase.get(id) || { id, cut: null, pieces: 0, rows: [] };
     const st = byId.get(lot.id) || null;
     const guess = inferCat(lot.id, sets, byId);
     const cat = cats.get(st ? st.catId : guess.catId) || null;
@@ -1672,7 +1732,9 @@ function productionRows() {
 
     const cells = parts.map(p => ({
       key: p.key, label: p.label, role: p.role, optional: p.optional,
-      done: done.has(p.key), date: dates[p.key] || null,
+      done: done.has(p.key),
+      date: st ? SetTracker.effDate(st, p.key) : (dates[p.key] || null),
+      shifted: st ? SetTracker.varDays(st, p.key) : 0,
     }));
     const req = cells.filter(c => !c.optional);
     const dated = cells.filter(c => c.date).map(c => c.date).sort();
@@ -1687,6 +1749,7 @@ function productionRows() {
 
     return {
       lot, st, cat, cells, status, spread, ready, win,
+      onBoard: !!st,
       label: st ? st.pattern : lot.id,
       priority: !!(st && st.priority),
       note: (st && st.note) || '',
@@ -1697,16 +1760,18 @@ function productionRows() {
 
 function renderProduction() {
   const rows = productionRows();
-  if (!S.purchRows) {
+  if (!$('#prod-body')) return;
+  if (!rows.length) {
     return void ($('#prod-body').innerHTML =
-      '<div class="empty">Load the purchase inward file — this board is built from it.</div>');
+      '<div class="empty">Nothing to show — connect Set Tracker, or load the purchase inward file.</div>');
   }
   const count = { tight: 0, spread: 0, incomplete: 0, done: 0 };
   for (const r of rows) count[r.status]++;
 
   let h = '<h2 class="sec">Production</h2>' +
-    '<p class="exp">' + rows.length + ' lots cut in the last ' + Lots.ageDays + ' days, straight from purchase inward. ' +
-    'Dates and ticks are read from Set Tracker — enter them there. Tap a lot for its pieces by colour and size.</p>';
+    '<p class="exp">' + rows.length + ' lots — everything on the board, plus anything cut in the last ' +
+    Lots.ageDays + ' days that the board has not picked up. ' +
+    'Dates and ticks are read from Set Tracker; enter them there. Tap a lot for its pieces by colour and size.</p>';
 
   h += '<div class="sumline">' +
     ['tight', 'spread', 'incomplete', 'done'].map(k =>
@@ -1741,7 +1806,9 @@ function lotCard(r) {
     '<div class="lot-h"><i class="sdot ' + DOT[r.status] + '"></i>' +
     (r.priority ? '<span class="star">★</span>' : '') +
     '<b>' + esc(r.label) + '</b>' +
-    '<span class="lot-m">' + r.lot.pieces + ' pcs · cut ' + shortDate(new Date(r.lot.cut).toISOString().slice(0, 10)) + '</span>' +
+    '<span class="lot-m">' + (r.lot.pieces
+      ? r.lot.pieces + ' pcs · cut ' + shortDate(new Date(r.lot.cut).toISOString().slice(0, 10))
+      : 'not in purchase yet') + '</span>' +
     (r.ready ? '<span class="ready">' + shortDate(r.ready) + '</span>'
              : '<span class="pend">' + (r.cat ? 'no date' : 'not tracked') + '</span>') +
     '</div>';
@@ -1751,7 +1818,7 @@ function lotCard(r) {
       const ps = r.cells.filter(c => c.role === role);
       if (!ps.length) return '';
       return ps.map(c => '<span class="pt' + (c.done ? ' pt-done' : (c.date ? '' : ' pt-empty')) + '">' +
-        esc(c.label) + (c.done ? ' ✓' : (c.date ? ' ' + shortDate(c.date) : ' —')) + '</span>').join('');
+        esc(c.label) + (c.done ? ' ✓' : (c.date ? ' ' + shortDate(c.date) + (c.shifted ? ' +' : '') : ' —')) + '</span>').join('');
     }).join('') + '</div>';
   }
   if (r.catVia) h += '<div class="lot-n">category taken from ' + esc(r.catVia) + '</div>';
@@ -1759,6 +1826,7 @@ function lotCard(r) {
 
   if (open) {
     h += '<div class="bd">';
+    if (!r.lot.rows.length) h += '<div class="bd-r">No purchase entry for this lot yet, so its pieces are unknown.</div>';
     for (const g of Lots.breakdown(r.lot.rows)) {
       h += '<div class="bd-r"><b>DES-' + esc(g.design) + '</b> ' + esc(g.color) +
         '<span class="bd-t">' + g.total + ' pcs</span><div class="bd-s">' +
