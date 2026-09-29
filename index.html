@@ -125,6 +125,12 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
 .ag-h{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap;font-size:14px}
 .ag-h b{font-size:15px}
 .ag-t{margin-left:auto;font-size:12px;color:var(--ink-2)}
+.ag-l{font-size:12.5px;margin-top:6px;color:var(--ink)}
+.ag-l b{font-weight:600;color:var(--good)}
+.ag-x{font-weight:400;color:var(--ink-2);font-size:11.5px}
+.ag-v{font-size:11.5px;color:var(--ink-2);margin:4px 0 6px}
+.fits{color:var(--good)}
+.nofit{color:var(--short)}
 .ag-f{font-size:12px;color:var(--ink-2);margin:6px 0 4px;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 .fr{padding:2px 7px;border-radius:3px;background:var(--good-bg);color:var(--good);font-weight:600}
 .fr-0{background:var(--rule-2);color:var(--ink-2);font-weight:400}
@@ -173,8 +179,8 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
 
 <header class="top">
   <h1>Pending &amp; Allotment</h1>
-  <span class="ver">v7.1</span>
-  <span class="chip" id="build">build 7.1</span>
+  <span class="ver">v7.3</span>
+  <span class="chip" id="build">build 7.3</span>
   <span class="chip" id="chip" title="Set Tracker connection">local</span>
 </header>
 <p class="sub-t">Your two pending reports, with stock already allotted against them.</p>
@@ -1460,6 +1466,7 @@ function rebuild() {
   Lots.build(S.purchRows, board, {}, Number($('#ageDays').value || 30));
   const split = Lots.freeStock(netted);
   S.stockMap = split.free;
+  S.netted = netted;
   S.nettedTotal = totalPieces(netted);
   S.heldWip = split.held;
 
@@ -1946,49 +1953,146 @@ function allotGroups() {
   return groups;
 }
 
-/* Fit saved allotments inside today's stock and orders. When a new file shrinks
-   stock, higher categories keep theirs and the lowest give way first. Nothing is
+/* Fit saved allotments inside today's stock and orders.
+   Stock is split into pools first — one per range, exactly as it sits on the
+   shelf — and each order draws only from the pool of its own range. A 0-8 set
+   is never broken open to fill a 0-3 order. When a new file shrinks stock,
+   higher categories keep theirs and the lowest give way first. Nothing is
    trimmed until a stock file is actually loaded, or an empty map would wipe it. */
 function settle(g) {
-  const left = Object.assign({}, g.avail);
+  const shelf = carve(g.avail, rangesFor(g));
+  g.pools = {};
+  g.width = {};
+  for (const p of shelf.sets) { g.pools[p.size] = p.sets; g.width[p.size] = p.pcs / p.sets; }
+  g.loose = shelf.loose;
+  const left = Object.assign({}, g.pools);
   g.trimmed = 0;
   const canTrim = !!S.stockRows;
   for (const l of g.lines) {
     const saved = Manual.sets[l.key] || 0;
     if (!canTrim) { l.sets = saved; continue; }
-    const room = Math.min(...l.sizes.map(s => left[s] || 0));
+    const room = Math.max(0, left[l.size] || 0);
     const got = Math.max(0, Math.min(saved, l.orderedSets, room));
     if (got !== saved) {
       g.trimmed += saved - got;
       if (got) Manual.sets[l.key] = got; else delete Manual.sets[l.key];
     }
     l.sets = got;
-    for (const s of l.sizes) left[s] = (left[s] || 0) - got;
+    left[l.size] = (left[l.size] || 0) - got;
   }
   g.left = left;
 }
 
+/* What is physically on the shelf, as non-overlapping sets. Widest range first:
+   16 sets of 0-8 take sizes 0-8, and only then do the leftover 0-3 pieces
+   form 0-3 sets. Anything that fits no range is shown as loose pieces. */
+function carve(counts, ranges) {
+  const left = Object.assign({}, counts);
+  const out = [];
+  const cands = ranges.slice().sort((a, b) => b.length - a.length || a[0] - b[0]);
+  for (const r of cands) {
+    const n = Math.min(...r.map(s => left[s] || 0));
+    if (n > 0) {
+      out.push({ size: r.length > 1 ? r[0] + '-' + r[r.length - 1] : String(r[0]), sets: n, pcs: n * r.length });
+      for (const s of r) left[s] -= n;
+    }
+  }
+  const loose = Object.keys(left).filter(s => left[s] > 0).sort((a, b) => a - b);
+  return { sets: out, loose: loose.map(s => ({ size: s, pcs: left[s] })) };
+}
+
+function carveText(c) {
+  const parts = c.sets.map(x => x.sets + ' × ' + esc(x.size));
+  if (c.loose.length) parts.push(c.loose.map(x => x.pcs + ' loose in ' + esc(x.size)).join(', '));
+  return parts.length ? parts.join(' + ') : 'nothing';
+}
+
+/* VastraApp's own balances for one design and colour, exactly as its report lists them */
+let ledgerIdx = null, ledgerSrc = null;
+function ledgerFor(design, color) {
+  if (ledgerSrc !== S.stockRows) {
+    ledgerIdx = new Map(); ledgerSrc = S.stockRows;
+    for (const r of (S.stockRows || [])) {
+      const q = Number(r['Current Stock'] || 0);
+      if (!q) continue;
+      const k = stripDes(r['Design Name']) + '|' + normColor(r['Color Name']);
+      if (!ledgerIdx.has(k)) ledgerIdx.set(k, []);
+      ledgerIdx.get(k).push({ size: String(r['Size']).trim(), q });
+    }
+    for (const [, v] of ledgerIdx) v.sort((a, b) => String(a.size).localeCompare(String(b.size), undefined, { numeric: true }));
+  }
+  return ledgerIdx.get(design + '|' + color) || [];
+}
+
+/* Pools as text, saying where a pool came from when it is bigger than VastraApp's
+   own figure for that range — e.g. 13 × 0-3 is 9 booked as 0-3 plus 4 left over
+   from 0-8 sets whose 4-8 half went out. */
+function poolText(g, pools, loose, explain) {
+  const ledger = ledgerFor(g.design, g.color);
+  const parts = Object.keys(pools).filter(k => pools[k] > 0)
+    .sort((a, b) => (g.width[b] || 0) - (g.width[a] || 0) || String(a).localeCompare(String(b), undefined, { numeric: true }))
+    .map(k => {
+      let t = pools[k] + ' × ' + esc(k);
+      if (explain) {
+        const w = g.width[k] || 1;
+        const own = ledger.find(e => e.size === k);
+        const booked = own && own.q > 0 ? Math.floor(own.q / w) : 0;
+        const extra = pools[k] - booked;
+        if (extra > 0 && booked >= 0) {
+          const sz = expandSize(k) || [];
+          const parent = ledger.filter(e => e.q > 0 && e.size !== k)
+            .find(e => { const r = expandSize(e.size) || []; return r.length > sz.length && sz.every(s => r.includes(s)); });
+          if (parent) t += ' <span class="ag-x">(' + (booked ? booked + ' booked as ' + esc(k) + ' + ' : '') +
+            extra + ' left over from ' + esc(parent.size) + ' sets)</span>';
+        }
+      }
+      return t;
+    });
+  if (loose && loose.length) parts.push(loose.map(x => x.pcs + ' loose in size ' + esc(x.size)).join(', '));
+  return parts.length ? parts.join(' + ') : 'nothing';
+}
+
+function rangesFor(g) {
+  const seen = new Set(); const out = [];
+  const add = sizes => { const k = sizes.join(','); if (sizes.length && !seen.has(k)) { seen.add(k); out.push(sizes); } };
+  for (const l of g.lines) add(l.sizes);
+  for (const e of ledgerFor(g.design, g.color)) if (e.q > 0) { const s = expandSize(e.size); if (s) add(s); }
+  return out;
+}
+
 /* how many more sets of this range still fit */
-const roomFor = (g, sizes) => Math.max(0, Math.min(...sizes.map(s => g.left[s] || 0)));
+const roomFor = (g, l) => Math.max(0, (g.left && g.left[l.size]) || 0);
 
 function allotCard(g) {
-  const ranges = [];
-  for (const l of g.lines) if (!ranges.some(r => r.size === l.size)) ranges.push(l);
-  const freeLine = ranges.map(r => {
-    const n = roomFor(g, r.sizes);
-    return '<span class="fr' + (n ? '' : ' fr-0') + '">' + esc(r.size) + ' · ' + n + ' set' + (n === 1 ? '' : 's') + ' (' + n * r.per + ' pcs)</span>';
-  }).join('');
+
+  const ledger = ledgerFor(g.design, g.color);
+  const netTotal = Object.values((S.netted && S.netted.get(g.gk)) || {}).reduce((a, b) => a + b, 0);
+  const held = Math.max(0, netTotal - g.freePcs);
+  const allotted = g.lines.reduce((t, l) => t + l.sets * l.per, 0);
+  const loosePcs = (g.loose || []).reduce((t, x) => t + x.pcs, 0);
+  const nowPcs = Object.keys(g.left).reduce((t, k) => t + Math.max(0, g.left[k]) * (g.width[k] || 0), 0) + loosePcs;
 
   let h = '<div class="ag" data-g="' + esc(g.gk) + '">' +
     '<div class="ag-h"><b>DES-' + esc(g.design) + '</b> ' + esc(title(g.color)) +
-    '<span class="ag-t">' + g.freePcs + ' pcs in stock</span></div>' +
-    '<div class="ag-f">Free now: ' + freeLine + '</div>';
+    '<span class="ag-t">' + g.freePcs + ' pcs</span></div>' +
+    '<div class="ag-l">On the shelf: <b>' + poolText(g, g.pools, g.loose, true) + '</b></div>' +
+    (allotted ? '<div class="ag-l">Still free after allotting: <b>' + poolText(g, g.left, g.loose, false) + '</b> (' + nowPcs + ' pcs)</div>' : '') +
+    '<div class="ag-v">VastraApp: ' + (ledger.length
+      ? ledger.map(e => esc(e.size) + ' ' + (e.q < 0 ? '−' + (-e.q) : e.q)).join(' · ')
+      : 'no stock rows') +
+    (held ? ' · ' + held + ' held back as still in production' : '') + '</div>' +
+    (ledger.reduce((t, e) => t + e.q, 0) !== netTotal
+      ? '<div class="ag-w">VastraApp totals ' + ledger.reduce((t, e) => t + e.q, 0) + ' pcs, but some sizes go below zero there. ' +
+        'Nothing can be below zero on the shelf, so those sizes count as empty here. Worth checking the entries in VastraApp.</div>'
+      : '');
   for (const l of g.lines) {
-    const room = roomFor(g, l.sizes);
+    const room = roomFor(g, l);
     const canAdd = l.sets < l.orderedSets && room > 0;
     h += '<div class="ar">' +
       '<div class="ar-n">' + esc(l.customer) + ' <span class="tag t-' + l.cat + '">' + l.cat + '</span>' +
-      '<div class="ar-o">' + esc(l.size) + ' · ordered ' + l.orderedSets + ' set' + (l.orderedSets === 1 ? '' : 's') + ' (' + l.pcs + ' pcs)</div></div>' +
+      '<div class="ar-o">' + esc(l.size) + ' · ordered ' + l.orderedSets + ' set' + (l.orderedSets === 1 ? '' : 's') + ' (' + l.pcs + ' pcs)' +
+      (l.sets < l.orderedSets ? ' · <span class="' + (room ? 'fits' : 'nofit') + '">' + (room ? room + ' can go' : (g.pools[l.size] ? 'none left' : 'no ' + esc(l.size) + ' sets on the shelf')) + '</span>' : '') +
+      '</div></div>' +
       '<div class="step">' +
       '<button type="button" class="sb" data-adj="' + esc(l.key) + '" data-d="-1"' + (l.sets ? '' : ' disabled') + ' aria-label="One set fewer">−</button>' +
       '<span class="sv' + (l.sets ? ' on' : '') + '">' + l.sets + '</span>' +
@@ -2067,7 +2171,7 @@ function adjust(key, d) {
   if (!g) return;
   const l = g.lines.find(x => x.key === key);
   if (!l) return;
-  if (d > 0 && (l.sets >= l.orderedSets || roomFor(g, l.sizes) < 1)) return;
+  if (d > 0 && (l.sets >= l.orderedSets || roomFor(g, l) < 1)) return;
   if (d < 0 && l.sets < 1) return;
   const next = l.sets + d;
   if (next) Manual.sets[key] = next; else delete Manual.sets[key];
