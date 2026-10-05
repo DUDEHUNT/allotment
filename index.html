@@ -142,6 +142,15 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
 .sv{min-width:26px;text-align:center;font-weight:600;color:var(--ink-2)}
 .sv.on{color:var(--good)}
 .ar-p{flex:0 0 52px;text-align:right;font-size:12.5px;color:var(--good);font-weight:600}
+.sz-h{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;margin:12px 0 0;padding:7px 9px;background:var(--sub);border-radius:3px;font-size:12px;color:var(--ink-2)}
+.sz-h b{font-size:13.5px;color:var(--ink)}
+.pn{cursor:pointer;text-decoration:underline;text-decoration-color:var(--rule);text-underline-offset:3px}
+.pn-c{font-size:10px;color:var(--ink-2);margin-left:4px;text-decoration:none;display:inline-block}
+.od{margin:-2px 0 8px;padding:7px 10px;background:var(--sub);border-radius:3px;font-size:12.5px;color:var(--ink-2)}
+.od-r{padding:3px 0}
+.od-r .dk{margin-left:0;margin-right:3px}
+.od-r .dk:nth-of-type(2){margin-left:8px}
+.od-q{color:var(--ink);margin-left:8px;white-space:nowrap}
 .ag-w{font-size:12px;color:var(--short);margin-top:7px}
 .ci{display:flex;gap:8px;align-items:baseline;padding:6px 0;border-top:1px solid var(--rule-2);font-size:13.5px}
 .ci span:first-child{flex:1 1 auto}
@@ -179,8 +188,8 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
 
 <header class="top">
   <h1>Pending &amp; Allotment</h1>
-  <span class="ver">v7.4</span>
-  <span class="chip" id="build">build 7.4</span>
+  <span class="ver">v7.5</span>
+  <span class="chip" id="build">build 7.5</span>
   <span class="chip" id="chip" title="Set Tracker connection">local</span>
 </header>
 <p class="sub-t">Your two pending reports, with stock already allotted against them.</p>
@@ -986,6 +995,7 @@ const S = {
   alloc: null, allocRows: [],
   sortDesign: 'design',
   asub: 'design',
+  openParty: new Set(),
   openLot: new Set(),
   q: { design: '', cust: '', allot: '' },
   open: new Set(),      // expanded design rows
@@ -1643,6 +1653,13 @@ document.addEventListener('click', e => {
     if (adj.disabled) return;
     return adjust(adj.dataset.adj, Number(adj.dataset.d));
   }
+  const pn = e.target.closest && e.target.closest('[data-party]');
+  if (pn) {
+    const k = pn.dataset.party;
+    if (!onceperTap('party:' + k)) return;
+    S.openParty.has(k) ? S.openParty.delete(k) : S.openParty.add(k);
+    return redrawCard(k.split('|').slice(1, 3).join('|'));
+  }
   const sub2 = e.target.closest && e.target.closest('[data-asub]');
   if (sub2) { S.asub = sub2.dataset.asub; return renderAllot(); }
   const lotEl = e.target.closest && e.target.closest('[data-lot]');
@@ -1931,9 +1948,10 @@ function allotGroups() {
     if (!groups.has(gk)) groups.set(gk, { gk, design: ln.design, color: ln.color, byKey: new Map() });
     const g = groups.get(gk);
     const k = mkey(ln.ckey, ln.design, ln.color, ln.sizeLabel);
-    if (!g.byKey.has(k)) g.byKey.set(k, { key: k, customer: ln.customer, ckey: ln.ckey, size: ln.sizeLabel, sizes: ln.sizes, pcs: 0, date: ln.date });
+    if (!g.byKey.has(k)) g.byKey.set(k, { key: k, customer: ln.customer, ckey: ln.ckey, size: ln.sizeLabel, sizes: ln.sizes, pcs: 0, date: ln.date, orders: [] });
     const e = g.byKey.get(k);
     e.pcs += ln.qty;
+    e.orders.push({ no: ln.order, date: ln.dateRaw, t: ln.date || 0, pcs: ln.qty });
     if (ln.date && (!e.date || ln.date < e.date)) e.date = ln.date;
   }
   for (const [, g] of groups) {
@@ -2092,19 +2110,49 @@ function allotCard(g) {
     (ledger.reduce((t, e) => t + e.q, 0) !== netTotal
       ? '<div class="ag-w">Some sizes are below zero in VastraApp — worth checking the entries.</div>'
       : '');
+  // one block per size range, widest first, like the stock line above
+  const bySize = new Map();
   for (const l of g.lines) {
-    const room = roomFor(g, l);
-    const canAdd = l.sets < l.orderedSets && room > 0;
-    h += '<div class="ar">' +
-      '<div class="ar-n">' + esc(l.customer) + ' <span class="tag t-' + l.cat + '">' + l.cat + '</span>' +
-      '<div class="ar-o">' + esc(l.size) + ' · ordered ' + l.orderedSets + ' set' + (l.orderedSets === 1 ? '' : 's') + ' (' + l.pcs + ' pcs)' +
-      (l.sets < l.orderedSets ? ' · <span class="' + (room ? 'fits' : 'nofit') + '">' + (room ? room + ' can go' : (g.pools[l.size] ? 'none left' : 'no ' + esc(l.size) + ' sets on the shelf')) + '</span>' : '') +
-      '</div></div>' +
-      '<div class="step">' +
-      '<button type="button" class="sb" data-adj="' + esc(l.key) + '" data-d="-1"' + (l.sets ? '' : ' disabled') + ' aria-label="One set fewer">−</button>' +
-      '<span class="sv' + (l.sets ? ' on' : '') + '">' + l.sets + '</span>' +
-      '<button type="button" class="sb" data-adj="' + esc(l.key) + '" data-d="1"' + (canAdd ? '' : ' disabled') + ' aria-label="One set more">+</button>' +
-      '</div><div class="ar-p">' + (l.sets ? l.sets * l.per + ' pcs' : '') + '</div></div>';
+    if (!bySize.has(l.size)) bySize.set(l.size, []);
+    bySize.get(l.size).push(l);
+  }
+  const sizes = [...bySize.keys()].sort((a, b) =>
+    (bySize.get(b)[0].per - bySize.get(a)[0].per) || String(a).localeCompare(String(b), undefined, { numeric: true }));
+
+  for (const sz of sizes) {
+    const ls = bySize.get(sz);
+    const wanted = ls.reduce((t, l) => t + l.orderedSets, 0);
+    const given = ls.reduce((t, l) => t + l.sets, 0);
+    const pool = g.pools[sz] || 0;
+    h += '<div class="sz-h"><b>' + esc(sz) + '</b>' +
+      '<span>' + ls.length + ' part' + (ls.length === 1 ? 'y' : 'ies') + ' · ' + wanted + ' set' + (wanted === 1 ? '' : 's') + ' ordered' +
+      (given ? ' · ' + given + ' allotted' : '') + '</span>' +
+      (pool ? '' : '<span class="nofit">no ' + esc(sz) + ' sets on the shelf</span>') + '</div>';
+
+    for (const l of ls) {
+      const room = roomFor(g, l);
+      const canAdd = l.sets < l.orderedSets && room > 0;
+      const open = S.openParty.has(l.key);
+      h += '<div class="ar">' +
+        '<div class="ar-n"><span class="pn" data-party="' + esc(l.key) + '">' + esc(l.customer) +
+        '<span class="pn-c">' + (open ? '▾' : '▸') + '</span></span> <span class="tag t-' + l.cat + '">' + l.cat + '</span>' +
+        '<div class="ar-o">ordered ' + l.orderedSets + ' set' + (l.orderedSets === 1 ? '' : 's') + ' (' + l.pcs + ' pcs)' +
+        (l.sets < l.orderedSets && pool ? ' · <span class="' + (room ? 'fits' : 'nofit') + '">' + (room ? room + ' can go' : 'none left') + '</span>' : '') +
+        '</div></div>' +
+        '<div class="step">' +
+        '<button type="button" class="sb" data-adj="' + esc(l.key) + '" data-d="-1"' + (l.sets ? '' : ' disabled') + ' aria-label="One set fewer">−</button>' +
+        '<span class="sv' + (l.sets ? ' on' : '') + '">' + l.sets + '</span>' +
+        '<button type="button" class="sb" data-adj="' + esc(l.key) + '" data-d="1"' + (canAdd ? '' : ' disabled') + ' aria-label="One set more">+</button>' +
+        '</div><div class="ar-p">' + (l.sets ? l.sets * l.per + ' pcs' : '') + '</div></div>';
+      if (open) {
+        const os = l.orders.slice().sort((a, b) => a.t - b.t);
+        h += '<div class="od">' + os.map(o =>
+          '<div class="od-r"><span class="dk">Order</span> ' + esc(o.no || '—') +
+          ' <span class="dk">Dated</span> ' + esc(o.date || '—') +
+          ' <span class="od-q">· ' + Math.floor(o.pcs / l.per) + ' set' + (Math.floor(o.pcs / l.per) === 1 ? '' : 's') + ' · ' + o.pcs + ' pcs</span></div>'
+        ).join('') + '</div>';
+      }
+    }
   }
   if (g.trimmed) h += '<div class="ag-w">' + g.trimmed + ' set' + (g.trimmed > 1 ? 's were' : ' was') + ' trimmed to fit the latest stock.</div>';
   return h + '</div>';
@@ -2168,6 +2216,12 @@ function renderAllotCust(groups, body) {
     h += '<div class="ct-t">Total ' + c.pcs + ' pcs</div></div>';
   }
   body.innerHTML = h;
+}
+
+function redrawCard(gk) {
+  const fresh = allotGroups().get(gk);
+  const el = document.querySelector('[data-g="' + CSS.escape(gk) + '"]');
+  if (el && fresh) el.outerHTML = allotCard(fresh); else renderAllot();
 }
 
 /* one tap = one set; only the touched card redraws, so the list does not jump */
