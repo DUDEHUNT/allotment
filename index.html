@@ -6,9 +6,6 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Pending &amp; Allotment — POGO</title>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <style>
 :root{
   --paper:#F2F4F3; --card:#FFFFFF; --ink:#16202A; --ink-2:#5A6B78;
@@ -123,6 +120,33 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
 .bd-t{color:var(--ink-2);font-size:12px;margin-left:7px}
 .bd-s{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px}
 .bd-s span{font-size:12px;padding:2px 7px;background:var(--sub);border:1px solid var(--rule-2);border-radius:3px}
+/* allotment */
+.ag{background:var(--card);border:1px solid var(--rule);border-radius:4px;padding:11px 13px;margin-bottom:8px}
+.ag-h{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap;font-size:14px}
+.ag-h b{font-size:15px}
+.ag-t{margin-left:auto;font-size:12px;color:var(--ink-2)}
+.ag-l{font-size:12.5px;margin-top:6px;color:var(--ink)}
+.ag-l b{font-weight:600;color:var(--good)}
+.ag-x{font-weight:400;color:var(--ink-2);font-size:11.5px}
+.ag-v{font-size:11.5px;color:var(--ink-2);margin:4px 0 6px}
+.fits{color:var(--good)}
+.nofit{color:var(--short)}
+.ag-f{font-size:12px;color:var(--ink-2);margin:6px 0 4px;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.fr{padding:2px 7px;border-radius:3px;background:var(--good-bg);color:var(--good);font-weight:600}
+.fr-0{background:var(--rule-2);color:var(--ink-2);font-weight:400}
+.ar{display:flex;align-items:center;gap:8px;padding:9px 0;border-top:1px solid var(--rule-2)}
+.ar-n{flex:1 1 auto;min-width:0;font-size:13.5px}
+.ar-o{font-size:12px;color:var(--ink-2);margin-top:2px}
+.step{display:flex;align-items:center;gap:4px;flex:0 0 auto}
+.sb{width:36px;height:36px;padding:0;font-size:19px;line-height:1;display:flex;align-items:center;justify-content:center}
+.sv{min-width:26px;text-align:center;font-weight:600;color:var(--ink-2)}
+.sv.on{color:var(--good)}
+.ar-p{flex:0 0 52px;text-align:right;font-size:12.5px;color:var(--good);font-weight:600}
+.ag-w{font-size:12px;color:var(--short);margin-top:7px}
+.ci{display:flex;gap:8px;align-items:baseline;padding:6px 0;border-top:1px solid var(--rule-2);font-size:13.5px}
+.ci span:first-child{flex:1 1 auto}
+.ci-p{flex:0 0 58px;text-align:right;color:var(--ink-2);font-size:12.5px}
+.ct-t{border-top:1px solid var(--rule);margin-top:4px;padding-top:7px;font-weight:600;text-align:right;font-size:13.5px}
 .srch{display:flex;gap:6px;align-items:center;margin:0 0 14px}
 .srch input{flex:1 1 auto;font-size:15px;padding:9px 11px}
 .srch .clr{padding:9px 12px;color:var(--ink-2);font-size:17px;line-height:1}
@@ -155,8 +179,8 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
 
 <header class="top">
   <h1>Pending &amp; Allotment</h1>
-  <span class="ver">v6.1</span>
-  <span class="chip" id="build">build 6.1</span>
+  <span class="ver">v7.4</span>
+  <span class="chip" id="build">build 7.4</span>
   <span class="chip" id="chip" title="Set Tracker connection">local</span>
 </header>
 <p class="sub-t">Your two pending reports, with stock already allotted against them.</p>
@@ -212,6 +236,7 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
   <button role="tab" data-p="cust" aria-selected="true">Customer wise pending</button>
   <button role="tab" data-p="design" aria-selected="false">Design wise pending</button>
   <button role="tab" data-p="prod" aria-selected="false">Production</button>
+  <button role="tab" data-p="allot" aria-selected="false">Allotment</button>
 </nav>
 
 <section class="panel show" id="p-cust">
@@ -220,6 +245,18 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
     <button type="button" class="clr" id="clrCust" aria-label="Clear search">&times;</button>
   </div>
   <div id="cust-body"><div class="empty">Load the pending order file to see this report.</div></div>
+</section>
+<section class="panel" id="p-allot">
+  <div class="seg">
+    <button type="button" class="seg-b" data-asub="cust">Customer wise</button>
+    <button type="button" class="seg-b on" data-asub="design">Design wise</button>
+    <button type="button" class="seg-b" id="clrManual">Clear all</button>
+  </div>
+  <div class="srch">
+    <input type="text" id="qAllot" placeholder="Search customer, design or colour" autocomplete="off">
+    <button type="button" class="clr" id="clrAllot" aria-label="Clear search">&times;</button>
+  </div>
+  <div id="allot-body"><div class="empty">Load the pending order and stock files.</div></div>
 </section>
 <section class="panel" id="p-prod">
   <div id="prod-body"><div class="empty">Load the purchase inward file — this board is built from it.</div></div>
@@ -234,6 +271,34 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
 
 </div>
 <script>
+/* First thing on the page: any error at all becomes visible instead of a dead screen. */
+window.addEventListener('error', function (ev) {
+  var m = document.getElementById('msg'); if (!m) return;
+  var t = ev.error && ev.error.stack ? ev.error.stack.split('\n').slice(0, 2).join(' — ') : ev.message;
+  m.innerHTML = '<div class="note bad"><b>Script error:</b> ' + String(t).replace(/</g, '&lt;') + '</div>';
+});
+
+/* External libraries load after the page is drawn, never in front of it.
+   Firestore's compat build needs the app build first, so those two chain. */
+function loadScript(src) {
+  return new Promise(function (res, rej) {
+    var s = document.createElement('script');
+    s.src = src; s.async = true;
+    s.onload = res;
+    s.onerror = function () { rej(new Error('could not load ' + src)); };
+    document.head.appendChild(s);
+  });
+}
+function timeout(p, ms) {
+  return Promise.race([p, new Promise(function (_, rej) { setTimeout(function () { rej(new Error('timed out')); }, ms); })]);
+}
+var xlsxReady = timeout(loadScript('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js'), 20000);
+var firebaseReady = timeout(
+  loadScript('https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js')
+    .then(function () { return loadScript('https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js'); }),
+  20000);
+xlsxReady.catch(function () {});
+firebaseReady.catch(function () {});
 /* Allocation core — shared by the app and the Node test harness.
    Everything here is pure: no DOM, no globals. */
 
@@ -920,8 +985,9 @@ const S = {
   cats: {}, fullOnly: {}, names: {},
   alloc: null, allocRows: [],
   sortDesign: 'design',
+  asub: 'design',
   openLot: new Set(),
-  q: { design: '', cust: '' },
+  q: { design: '', cust: '', allot: '' },
   open: new Set(),      // expanded design rows
   openCust: new Set(),  // expanded customer sub-rows
 };
@@ -1270,7 +1336,8 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&am
 const title = s => String(s).replace(/\b\w/g, c => c.toUpperCase());
 const msg = (html, kind) => { $('#msg').innerHTML = html ? '<div class="note' + (kind === 'bad' ? ' bad' : '') + '">' + html + '</div>' : ''; };
 
-function readSheet(file, wanted) {
+async function readSheet(file, wanted) {
+  try { await xlsxReady; } catch (e) { throw new Error('needs the Excel reader, which could not load — check the connection and try again'); }
   return new Promise((res, rej) => {
     const r = new FileReader();
     r.onerror = () => rej(new Error('could not be read'));
@@ -1399,6 +1466,7 @@ function rebuild() {
   Lots.build(S.purchRows, board, {}, Number($('#ageDays').value || 30));
   const split = Lots.freeStock(netted);
   S.stockMap = split.free;
+  S.netted = netted;
   S.nettedTotal = totalPieces(netted);
   S.heldWip = split.held;
 
@@ -1413,7 +1481,7 @@ function rebuild() {
   S.allocRows = allocationRows(S.lines, r.alloc, cats, defCat);
   S.catOf = cats; S.defCat = defCat;
 
-  renderDesign(); renderCustomer(); renderProduction(); renderParties();
+  renderDesign(); renderCustomer(); renderProduction(); renderAllot(); renderParties();
   $('#exportBtn').disabled = false;
   checkColours();
 }
@@ -1570,6 +1638,13 @@ function onceperTap(k) {
 }
 
 document.addEventListener('click', e => {
+  const adj = e.target.closest && e.target.closest('[data-adj]');
+  if (adj) {
+    if (adj.disabled) return;
+    return adjust(adj.dataset.adj, Number(adj.dataset.d));
+  }
+  const sub2 = e.target.closest && e.target.closest('[data-asub]');
+  if (sub2) { S.asub = sub2.dataset.asub; return renderAllot(); }
   const lotEl = e.target.closest && e.target.closest('[data-lot]');
   if (lotEl) {
     const k = lotEl.dataset.lot;
@@ -1837,6 +1912,283 @@ function lotCard(r) {
   return h + '</div>';
 }
 
+/* ---------- manual allotment ----------
+   Done by hand, in whole sets. A set is one piece of every size in its range,
+   so 0-3 = 4 pcs, 0-8 = 9, 0-10 = 11. Stock is tracked per individual size,
+   because a 0-8 set and a 0-3 set both draw on sizes 0 to 3. */
+
+const Manual = {
+  sets: {},
+  load() { this.sets = store.get('allot.manual') || {}; },
+  save() { store.set('allot.manual', this.sets); },
+};
+const mkey = (ckey, design, color, size) => ckey + '|' + design + '|' + color + '|' + size;
+
+function allotGroups() {
+  const groups = new Map();
+  for (const ln of S.lines) {
+    const gk = ln.design + '|' + ln.color;
+    if (!groups.has(gk)) groups.set(gk, { gk, design: ln.design, color: ln.color, byKey: new Map() });
+    const g = groups.get(gk);
+    const k = mkey(ln.ckey, ln.design, ln.color, ln.sizeLabel);
+    if (!g.byKey.has(k)) g.byKey.set(k, { key: k, customer: ln.customer, ckey: ln.ckey, size: ln.sizeLabel, sizes: ln.sizes, pcs: 0, date: ln.date });
+    const e = g.byKey.get(k);
+    e.pcs += ln.qty;
+    if (ln.date && (!e.date || ln.date < e.date)) e.date = ln.date;
+  }
+  for (const [, g] of groups) {
+    const bucket = (S.stockMap && S.stockMap.get(g.gk)) || {};
+    g.avail = {};
+    for (const s of Object.keys(bucket)) g.avail[s] = bucket[s];
+    g.freePcs = Object.values(g.avail).reduce((a, b) => a + b, 0);
+    g.lines = [...g.byKey.values()].map(e => Object.assign(e, {
+      per: e.sizes.length,
+      orderedSets: Math.floor(e.pcs / e.sizes.length),
+      cat: S.cats[e.ckey] || S.defCat || 'R3',
+    })).sort((a, b) => CATS.indexOf(a.cat) - CATS.indexOf(b.cat)
+      || (a.date || 0) - (b.date || 0) || a.customer.localeCompare(b.customer));
+    delete g.byKey;
+    settle(g);
+  }
+  return groups;
+}
+
+/* Fit saved allotments inside today's stock and orders.
+   Stock is split into pools first — one per range, exactly as it sits on the
+   shelf — and each order draws only from the pool of its own range. A 0-8 set
+   is never broken open to fill a 0-3 order. When a new file shrinks stock,
+   higher categories keep theirs and the lowest give way first. Nothing is
+   trimmed until a stock file is actually loaded, or an empty map would wipe it. */
+function settle(g) {
+  const shelf = carve(g.avail, rangesFor(g));
+  g.pools = {};
+  g.width = {};
+  for (const p of shelf.sets) { g.pools[p.size] = p.sets; g.width[p.size] = p.pcs / p.sets; }
+  g.loose = shelf.loose;
+  const left = Object.assign({}, g.pools);
+  g.trimmed = 0;
+  const canTrim = !!S.stockRows;
+  for (const l of g.lines) {
+    const saved = Manual.sets[l.key] || 0;
+    if (!canTrim) { l.sets = saved; continue; }
+    const room = Math.max(0, left[l.size] || 0);
+    const got = Math.max(0, Math.min(saved, l.orderedSets, room));
+    if (got !== saved) {
+      g.trimmed += saved - got;
+      if (got) Manual.sets[l.key] = got; else delete Manual.sets[l.key];
+    }
+    l.sets = got;
+    left[l.size] = (left[l.size] || 0) - got;
+  }
+  g.left = left;
+}
+
+/* What is physically on the shelf, as non-overlapping sets. Widest range first:
+   16 sets of 0-8 take sizes 0-8, and only then do the leftover 0-3 pieces
+   form 0-3 sets. Anything that fits no range is shown as loose pieces. */
+function carve(counts, ranges) {
+  const left = Object.assign({}, counts);
+  const out = [];
+  const cands = ranges.slice().sort((a, b) => b.length - a.length || a[0] - b[0]);
+  for (const r of cands) {
+    const n = Math.min(...r.map(s => left[s] || 0));
+    if (n > 0) {
+      out.push({ size: r.length > 1 ? r[0] + '-' + r[r.length - 1] : String(r[0]), sets: n, pcs: n * r.length });
+      for (const s of r) left[s] -= n;
+    }
+  }
+  const loose = Object.keys(left).filter(s => left[s] > 0).sort((a, b) => a - b);
+  return { sets: out, loose: loose.map(s => ({ size: s, pcs: left[s] })) };
+}
+
+function carveText(c) {
+  const parts = c.sets.map(x => x.sets + ' × ' + esc(x.size));
+  if (c.loose.length) parts.push(c.loose.map(x => x.pcs + ' loose in ' + esc(x.size)).join(', '));
+  return parts.length ? parts.join(' + ') : 'nothing';
+}
+
+/* VastraApp's own balances for one design and colour, exactly as its report lists them */
+let ledgerIdx = null, ledgerSrc = null;
+function ledgerFor(design, color) {
+  if (ledgerSrc !== S.stockRows) {
+    ledgerIdx = new Map(); ledgerSrc = S.stockRows;
+    for (const r of (S.stockRows || [])) {
+      const q = Number(r['Current Stock'] || 0);
+      if (!q) continue;
+      const k = stripDes(r['Design Name']) + '|' + normColor(r['Color Name']);
+      if (!ledgerIdx.has(k)) ledgerIdx.set(k, []);
+      ledgerIdx.get(k).push({ size: String(r['Size']).trim(), q });
+    }
+    for (const [, v] of ledgerIdx) v.sort((a, b) => String(a.size).localeCompare(String(b.size), undefined, { numeric: true }));
+  }
+  return ledgerIdx.get(design + '|' + color) || [];
+}
+
+/* Pools as text, saying where a pool came from when it is bigger than VastraApp's
+   own figure for that range — e.g. 13 × 0-3 is 9 booked as 0-3 plus 4 left over
+   from 0-8 sets whose 4-8 half went out. */
+function poolText(g, pools, loose, explain) {
+  const ledger = ledgerFor(g.design, g.color);
+  const parts = Object.keys(pools).filter(k => pools[k] > 0)
+    .sort((a, b) => (g.width[b] || 0) - (g.width[a] || 0) || String(a).localeCompare(String(b), undefined, { numeric: true }))
+    .map(k => {
+      let t = pools[k] + ' × ' + esc(k);
+      if (explain) {
+        const w = g.width[k] || 1;
+        const own = ledger.find(e => e.size === k);
+        const booked = own && own.q > 0 ? Math.floor(own.q / w) : 0;
+        const extra = pools[k] - booked;
+        if (extra > 0 && booked >= 0) {
+          const sz = expandSize(k) || [];
+          const parent = ledger.filter(e => e.q > 0 && e.size !== k)
+            .find(e => { const r = expandSize(e.size) || []; return r.length > sz.length && sz.every(s => r.includes(s)); });
+          if (parent) t += ' <span class="ag-x">(' + (booked ? booked + ' booked as ' + esc(k) + ' + ' : '') +
+            extra + ' left over from ' + esc(parent.size) + ' sets)</span>';
+        }
+      }
+      return t;
+    });
+  if (loose && loose.length) parts.push(loose.map(x => x.pcs + ' loose in size ' + esc(x.size)).join(', '));
+  return parts.length ? parts.join(' + ') : 'nothing';
+}
+
+function rangesFor(g) {
+  const seen = new Set(); const out = [];
+  const add = sizes => { const k = sizes.join(','); if (sizes.length && !seen.has(k)) { seen.add(k); out.push(sizes); } };
+  for (const l of g.lines) add(l.sizes);
+  for (const e of ledgerFor(g.design, g.color)) if (e.q > 0) { const s = expandSize(e.size); if (s) add(s); }
+  return out;
+}
+
+function stockChips(g) {
+  const keys = Object.keys(g.pools || {}).filter(k => g.pools[k] > 0)
+    .sort((a, b) => (g.width[b] || 0) - (g.width[a] || 0) || String(a).localeCompare(String(b), undefined, { numeric: true }));
+  if (!keys.length) return '<span class="fr fr-0">no complete sets</span>';
+  return keys.map(k => {
+    const total = g.pools[k], left = Math.max(0, g.left[k] || 0), w = g.width[k] || 0;
+    const txt = left === total
+      ? esc(k) + ' = ' + total + ' set' + (total === 1 ? '' : 's') + ' (' + total * w + ' pcs)'
+      : esc(k) + ' = ' + left + ' of ' + total + ' sets left (' + left * w + ' pcs)';
+    return '<span class="fr' + (left ? '' : ' fr-0') + '">' + txt + '</span>';
+  }).join('');
+}
+
+/* how many more sets of this range still fit */
+const roomFor = (g, l) => Math.max(0, (g.left && g.left[l.size]) || 0);
+
+function allotCard(g) {
+
+  const ledger = ledgerFor(g.design, g.color);
+  const netTotal = Object.values((S.netted && S.netted.get(g.gk)) || {}).reduce((a, b) => a + b, 0);
+  const held = Math.max(0, netTotal - g.freePcs);
+  const allotted = g.lines.reduce((t, l) => t + l.sets * l.per, 0);
+  const loosePcs = (g.loose || []).reduce((t, x) => t + x.pcs, 0);
+  const nowPcs = Object.keys(g.left).reduce((t, k) => t + Math.max(0, g.left[k]) * (g.width[k] || 0), 0) + loosePcs;
+
+  let h = '<div class="ag" data-g="' + esc(g.gk) + '">' +
+    '<div class="ag-h"><b>DES-' + esc(g.design) + '</b> ' + esc(title(g.color)) +
+    '<span class="ag-t">' + g.freePcs + ' pcs</span></div>' +
+    '<div class="ag-f">' + stockChips(g) + '</div>' +
+    (ledger.reduce((t, e) => t + e.q, 0) !== netTotal
+      ? '<div class="ag-w">Some sizes are below zero in VastraApp — worth checking the entries.</div>'
+      : '');
+  for (const l of g.lines) {
+    const room = roomFor(g, l);
+    const canAdd = l.sets < l.orderedSets && room > 0;
+    h += '<div class="ar">' +
+      '<div class="ar-n">' + esc(l.customer) + ' <span class="tag t-' + l.cat + '">' + l.cat + '</span>' +
+      '<div class="ar-o">' + esc(l.size) + ' · ordered ' + l.orderedSets + ' set' + (l.orderedSets === 1 ? '' : 's') + ' (' + l.pcs + ' pcs)' +
+      (l.sets < l.orderedSets ? ' · <span class="' + (room ? 'fits' : 'nofit') + '">' + (room ? room + ' can go' : (g.pools[l.size] ? 'none left' : 'no ' + esc(l.size) + ' sets on the shelf')) + '</span>' : '') +
+      '</div></div>' +
+      '<div class="step">' +
+      '<button type="button" class="sb" data-adj="' + esc(l.key) + '" data-d="-1"' + (l.sets ? '' : ' disabled') + ' aria-label="One set fewer">−</button>' +
+      '<span class="sv' + (l.sets ? ' on' : '') + '">' + l.sets + '</span>' +
+      '<button type="button" class="sb" data-adj="' + esc(l.key) + '" data-d="1"' + (canAdd ? '' : ' disabled') + ' aria-label="One set more">+</button>' +
+      '</div><div class="ar-p">' + (l.sets ? l.sets * l.per + ' pcs' : '') + '</div></div>';
+  }
+  if (g.trimmed) h += '<div class="ag-w">' + g.trimmed + ' set' + (g.trimmed > 1 ? 's were' : ' was') + ' trimmed to fit the latest stock.</div>';
+  return h + '</div>';
+}
+
+function renderAllot() {
+  const body = $('#allot-body');
+  if (!body) return;
+  document.querySelectorAll('[data-asub]').forEach(b => b.classList.toggle('on', b.dataset.asub === S.asub));
+  if (!S.lines.length) { body.innerHTML = '<div class="empty">Load the pending order file.</div>'; return; }
+  if (!S.stockRows) { body.innerHTML = '<div class="empty">Load the stock file — allotment can only draw on stock you have.</div>'; return; }
+  const groups = allotGroups();
+  Manual.save();
+  return S.asub === 'cust' ? renderAllotCust(groups, body) : renderAllotDesign(groups, body);
+}
+
+function renderAllotDesign(groups, body) {
+  const q = (S.q.allot || '').trim().toLowerCase();
+  const all = [...groups.values()];
+  const stocked = all.filter(g => g.freePcs > 0 || g.lines.some(l => l.sets));
+  const shown = stocked.filter(g => hits(q, g.design, g.color, g.lines.map(l => l.customer).join(' ')))
+    .sort((a, b) => a.design.localeCompare(b.design, undefined, { numeric: true }) || a.color.localeCompare(b.color));
+  const totalPcs = all.reduce((t, g) => t + g.lines.reduce((u, l) => u + l.sets * l.per, 0), 0);
+
+  let h = '<p class="exp">' + shown.length + ' design colours with stock to give out · ' + totalPcs + ' pcs allotted so far. ' +
+    (all.length - stocked.length) + ' more have orders but no free stock, so they are left out. ' +
+    (Lots.openLots && Lots.openLots.length ? 'Stock shown excludes lots still in production.' : '') + '</p>';
+  if (!shown.length) h += '<div class="empty">Nothing matches that search.</div>';
+  for (const g of shown) h += allotCard(g);
+  body.innerHTML = h;
+}
+
+function renderAllotCust(groups, body) {
+  const q = (S.q.allot || '').trim().toLowerCase();
+  const per = new Map();
+  for (const [, g] of groups) for (const l of g.lines) {
+    if (!l.sets) continue;
+    if (!hits(q, g.design, g.color, l.customer)) continue;
+    if (!per.has(l.ckey)) per.set(l.ckey, { name: l.customer, cat: l.cat, items: [], pcs: 0 });
+    const c = per.get(l.ckey);
+    c.items.push({ g, l });
+    c.pcs += l.sets * l.per;
+  }
+  const list = [...per.values()].sort((a, b) => CATS.indexOf(a.cat) - CATS.indexOf(b.cat) || a.name.localeCompare(b.name));
+  const grand = list.reduce((t, c) => t + c.pcs, 0);
+
+  let h = '<p class="exp">' + list.length + ' parties with stock allotted · ' + grand + ' pcs in all. Allot on the Design wise tab.</p>';
+  if (!list.length) {
+    body.innerHTML = h + '<div class="empty">' + (q ? 'Nothing matches that search.' : 'Nothing allotted yet.') + '</div>';
+    return;
+  }
+  for (const c of list) {
+    h += '<div class="ag"><div class="ag-h"><b>' + esc(c.name) + '</b> <span class="tag t-' + c.cat + '">' + c.cat + '</span></div>';
+    c.items.sort((a, b) => a.g.design.localeCompare(b.g.design, undefined, { numeric: true }));
+    for (const { g, l } of c.items) {
+      const full = l.sets >= l.orderedSets;
+      h += '<div class="ci"><span>' + esc(g.design) + ' ' + esc(title(g.color)) + ' ' + esc(l.size) + '</span>' +
+        '<span class="' + (full ? 'full' : 'part') + '">' + (full ? '✓' : l.sets + ' of ' + l.orderedSets + ' sets') + '</span>' +
+        '<span class="ci-p">' + l.sets * l.per + ' pcs</span></div>';
+    }
+    h += '<div class="ct-t">Total ' + c.pcs + ' pcs</div></div>';
+  }
+  body.innerHTML = h;
+}
+
+/* one tap = one set; only the touched card redraws, so the list does not jump */
+function adjust(key, d) {
+  const groups = allotGroups();
+  const gk = key.split('|').slice(1, 3).join('|');
+  const g = groups.get(gk);
+  if (!g) return;
+  const l = g.lines.find(x => x.key === key);
+  if (!l) return;
+  if (d > 0 && (l.sets >= l.orderedSets || roomFor(g, l) < 1)) return;
+  if (d < 0 && l.sets < 1) return;
+  const next = l.sets + d;
+  if (next) Manual.sets[key] = next; else delete Manual.sets[key];
+  Manual.save();
+  const fresh = allotGroups().get(gk);
+  const el = document.querySelector('[data-g="' + CSS.escape(gk) + '"]');
+  if (el && fresh) el.outerHTML = allotCard(fresh);
+  else renderAllot();
+}
+
 /* ---------- parties drawer ---------- */
 function renderParties() {
   const keys = Object.keys(S.names).sort((a, b) => S.names[a].localeCompare(S.names[b]));
@@ -1895,7 +2247,8 @@ $('#fCats').addEventListener('change', e => {
 });
 
 /* ---------- export ---------- */
-$('#exportBtn').addEventListener('click', () => {
+$('#exportBtn').addEventListener('click', async () => {
+  try { await xlsxReady; } catch (e) { return msg('Export needs the Excel reader, which could not load. Check the connection and try again.', 'bad'); }
   const wb = XLSX.utils.book_new();
   const dw = designWiseRows().map(r => ({
     'Design Name': 'DES-' + r.design, 'Color': title(r.color), 'Size': r.size,
@@ -1913,6 +2266,13 @@ $('#exportBtn').addEventListener('click', () => {
   });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(dw), 'Design Wise Pending');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(cw), 'Customer Wise Pending');
+  const ma = [];
+  if (S.stockRows) for (const [, g] of allotGroups()) for (const l of g.lines) if (l.sets) ma.push({
+    'Customer Name': l.customer, 'Category': l.cat, 'Design Name': 'DES-' + g.design,
+    'Color': title(g.color), 'Size': l.size, 'Ordered Sets': l.orderedSets,
+    'Allotted Sets': l.sets, 'Allotted Pcs': l.sets * l.per,
+  });
+  if (ma.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(ma), 'Allotment');
   XLSX.writeFile(wb, 'Pending-Allotment-' + new Date().toISOString().slice(0, 10) + '.xlsx');
 });
 
@@ -1979,8 +2339,13 @@ function wireSearch(inputId, clearId, key, render) {
 }
 wireSearch('qCust', 'clrCust', 'cust', renderCustomer);
 wireSearch('qDesign', 'clrDesign', 'design', renderDesign);
+wireSearch('qAllot', 'clrAllot', 'allot', renderAllot);
 
 $('#ageDays').addEventListener('change', rebuild);
+$('#clrManual').addEventListener('click', () => {
+  if (!confirm('Clear every manual allotment? This cannot be undone.')) return;
+  Manual.sets = {}; Manual.save(); renderAllot();
+});
 $('#mode').addEventListener('change', rebuild);
 $('#defCat').addEventListener('change', rebuild);
 $('#clear').addEventListener('click', () => {
@@ -1993,8 +2358,10 @@ $('#clear').addEventListener('click', () => {
   msg(''); rebuild();
 });
 
+Manual.load();
 restore();
-Live.start();
+Live.chip('wait', 'connecting');
+firebaseReady.then(() => Live.start(), () => Live.chip('', 'offline board'));
 Sheets.pullAll(false);
 
 </script>
