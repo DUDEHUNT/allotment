@@ -188,8 +188,8 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
 
 <header class="top">
   <h1>Pending &amp; Allotment</h1>
-  <span class="ver">v7.8</span>
-  <span class="chip" id="build">build 7.8</span>
+  <span class="ver">v7.9</span>
+  <span class="chip" id="build">build 7.9</span>
   <span class="chip" id="chip" title="Set Tracker connection">local</span>
 </header>
 <p class="sub-t">Your two pending reports, with stock already allotted against them.</p>
@@ -2116,9 +2116,25 @@ function rangesFor(g) {
 }
 
 function stockChips(g) {
-  const sets = g.shelfNow.sets.slice().sort((a, b) => (b.pcs / b.sets) - (a.pcs / a.sets) || String(a.size).localeCompare(String(b.size), undefined, { numeric: true }));
-  if (!sets.length) return '<span class="fr fr-0">' + (g.lines.some(l => l.sets) ? 'all given out' : 'no complete sets') + '</span>';
-  return sets.map(x => '<span class="fr">' + esc(x.size) + ' = ' + x.sets + ' set' + (x.sets === 1 ? '' : 's') + ' (' + x.pcs + ' pcs)</span>').join('');
+  const w = x => x.pcs / x.sets;
+  const all = new Map(g.shelfAll.sets.map(x => [x.size, x]));
+  const now = new Map(g.shelfNow.sets.map(x => [x.size, x]));
+  const any = g.lines.some(l => l.sets);
+  const keys = [...new Set([...all.keys(), ...now.keys()])].sort((a, b) => {
+    const wa = (all.get(a) || now.get(a)), wb = (all.get(b) || now.get(b));
+    return w(wb) - w(wa) || String(a).localeCompare(String(b), undefined, { numeric: true });
+  });
+  if (!keys.length) return '<span class="fr fr-0">no complete sets</span>';
+  return keys.map(k => {
+    const total = all.has(k) ? all.get(k).sets : 0;
+    const left = now.has(k) ? now.get(k).sets : 0;
+    const per = w(all.get(k) || now.get(k));
+    let txt;
+    if (!any) txt = esc(k) + ' = ' + total + ' set' + (total === 1 ? '' : 's') + ' (' + total * per + ' pcs)';
+    else if (total) txt = esc(k) + ' = ' + left + ' of ' + total + ' sets left (' + left * per + ' pcs)';
+    else txt = esc(k) + ' = ' + left + ' set' + (left === 1 ? '' : 's') + ' left over (' + left * per + ' pcs)';
+    return '<span class="fr' + (left ? '' : ' fr-0') + '">' + txt + '</span>';
+  }).join('');
 }
 
 /* how many more sets of this range still fit */
@@ -2165,7 +2181,8 @@ function allotCard(g) {
         '<div class="ar-n"><span class="pn" data-party="' + esc(l.key) + '">' + esc(l.customer) +
         '<span class="pn-c">' + (open ? '▾' : '▸') + '</span></span> <span class="tag t-' + l.cat + '">' + l.cat + '</span>' +
         '<div class="ar-o">ordered ' + l.orderedSets + ' set' + (l.orderedSets === 1 ? '' : 's') + ' (' + l.pcs + ' pcs)' +
-        (l.sets < l.orderedSets && pool ? ' · <span class="' + (room ? 'fits' : 'nofit') + '">' + (room ? room + ' can go' : 'none left') + '</span>' : '') +
+        (l.sets < l.orderedSets && pool ? ' · <span class="' + (room ? 'fits' : 'nofit') + '">' +
+          (room ? Math.min(room, l.orderedSets - l.sets) + ' more can go' : 'none left') + '</span>' : '') +
         '</div></div>' +
         '<div class="step">' +
         '<button type="button" class="sb" data-adj="' + esc(l.key) + '" data-d="-1"' + (l.sets ? '' : ' disabled') + ' aria-label="One set fewer">−</button>' +
