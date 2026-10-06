@@ -188,8 +188,8 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
 
 <header class="top">
   <h1>Pending &amp; Allotment</h1>
-  <span class="ver">v7.5</span>
-  <span class="chip" id="build">build 7.5</span>
+  <span class="ver">v7.7</span>
+  <span class="chip" id="build">build 7.7</span>
   <span class="chip" id="chip" title="Set Tracker connection">local</span>
 </header>
 <p class="sub-t">Your two pending reports, with stock already allotted against them.</p>
@@ -1955,7 +1955,9 @@ function allotGroups() {
     if (ln.date && (!e.date || ln.date < e.date)) e.date = ln.date;
   }
   for (const [, g] of groups) {
-    const bucket = (S.stockMap && S.stockMap.get(g.gk)) || {};
+    // Allotment works from VastraApp's stock exactly as reported. The
+    // in-production hold only shapes dispatch dates on the Pending tabs.
+    const bucket = ((S.netted || S.stockMap) && (S.netted || S.stockMap).get(g.gk)) || {};
     g.avail = {};
     for (const s of Object.keys(bucket)) g.avail[s] = bucket[s];
     g.freePcs = Object.values(g.avail).reduce((a, b) => a + b, 0);
@@ -1977,8 +1979,39 @@ function allotGroups() {
    is never broken open to fill a 0-3 order. When a new file shrinks stock,
    higher categories keep theirs and the lowest give way first. Nothing is
    trimmed until a stock file is actually loaded, or an empty map would wipe it. */
+/* Stock as it sits: first the sets VastraApp has booked, range by range and
+   never more than were booked; a negative range eats into the wider sets it
+   came out of, which the per-size counts already reflect. Whatever pieces are
+   left after that — the 0-5 halves of 0-10 sets whose 6-10 went out — then
+   form sets of their own. So 6-10 booked as 6-10 stays 6-10. */
+function carveBooked(g) {
+  const left = Object.assign({}, g.avail);
+  const out = new Map();
+  const lab = sz => sz.length > 1 ? sz[0] + '-' + sz[sz.length - 1] : String(sz[0]);
+  const take = (sz, cap) => {
+    const n = Math.min(cap, ...sz.map(s => left[s] || 0));
+    if (n <= 0) return;
+    for (const s of sz) left[s] -= n;
+    const k = lab(sz);
+    out.set(k, { size: k, sets: (out.has(k) ? out.get(k).sets : 0) + n, w: sz.length });
+  };
+  const byWidth = (a, b) => b.length - a.length || a[0] - b[0];
+  const booked = [];
+  for (const e of ledgerFor(g.design, g.color)) {
+    if (e.q <= 0) continue;
+    const sz = expandSize(e.size);
+    if (!sz || sz.length < 2) continue;
+    booked.push({ sz, n: Math.floor(e.q / sz.length) });
+  }
+  booked.sort((a, b) => byWidth(a.sz, b.sz));
+  for (const b of booked) take(b.sz, b.n);
+  for (const r of rangesFor(g).filter(r => r.length > 1).sort(byWidth)) take(r, Infinity);
+  const loose = Object.keys(left).filter(s => left[s] > 0).sort((a, b) => a - b).map(s => ({ size: s, pcs: left[s] }));
+  return { sets: [...out.values()].map(x => ({ size: x.size, sets: x.sets, pcs: x.sets * x.w })), loose };
+}
+
 function settle(g) {
-  const shelf = carve(g.avail, rangesFor(g));
+  const shelf = carveBooked(g);
   g.pools = {};
   g.width = {};
   for (const p of shelf.sets) { g.pools[p.size] = p.sets; g.width[p.size] = p.pcs / p.sets; }
@@ -2074,7 +2107,9 @@ function rangesFor(g) {
   const seen = new Set(); const out = [];
   const add = sizes => { const k = sizes.join(','); if (sizes.length && !seen.has(k)) { seen.add(k); out.push(sizes); } };
   for (const l of g.lines) add(l.sizes);
-  for (const e of ledgerFor(g.design, g.color)) if (e.q > 0) { const s = expandSize(e.size); if (s) add(s); }
+  // every range VastraApp lists, negative ones included: a negative 0-5 leaves
+  // 6-10 halves behind, and those are sets in their own right
+  for (const e of ledgerFor(g.design, g.color)) { const s = expandSize(e.size); if (s) add(s); }
   return out;
 }
 
@@ -2179,7 +2214,7 @@ function renderAllotDesign(groups, body) {
 
   let h = '<p class="exp">' + shown.length + ' design colours with stock to give out · ' + totalPcs + ' pcs allotted so far. ' +
     (all.length - stocked.length) + ' more have orders but no free stock, so they are left out. ' +
-    (Lots.openLots && Lots.openLots.length ? 'Stock shown excludes lots still in production.' : '') + '</p>';
+    '</p>';
   if (!shown.length) h += '<div class="empty">Nothing matches that search.</div>';
   for (const g of shown) h += allotCard(g);
   body.innerHTML = h;
