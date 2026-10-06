@@ -188,8 +188,8 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
 
 <header class="top">
   <h1>Pending &amp; Allotment</h1>
-  <span class="ver">v7.7</span>
-  <span class="chip" id="build">build 7.7</span>
+  <span class="ver">v7.8</span>
+  <span class="chip" id="build">build 7.8</span>
   <span class="chip" id="chip" title="Set Tracker connection">local</span>
 </header>
 <p class="sub-t">Your two pending reports, with stock already allotted against them.</p>
@@ -2011,27 +2011,29 @@ function carveBooked(g) {
 }
 
 function settle(g) {
-  const shelf = carveBooked(g);
-  g.pools = {};
-  g.width = {};
-  for (const p of shelf.sets) { g.pools[p.size] = p.sets; g.width[p.size] = p.pcs / p.sets; }
-  g.loose = shelf.loose;
-  const left = Object.assign({}, g.pools);
+  // Stock is tracked piece by piece in each size. A 0-5 order takes one piece
+  // of sizes 0 to 5 — from loose 0-5 sets first in practice, and from a 0-10 set
+  // after that, which leaves its 6-10 half free for someone else.
+  const left = Object.assign({}, g.avail);
   g.trimmed = 0;
   const canTrim = !!S.stockRows;
   for (const l of g.lines) {
     const saved = Manual.sets[l.key] || 0;
     if (!canTrim) { l.sets = saved; continue; }
-    const room = Math.max(0, left[l.size] || 0);
+    const room = Math.max(0, Math.min(...l.sizes.map(s => left[s] || 0)));
     const got = Math.max(0, Math.min(saved, l.orderedSets, room));
     if (got !== saved) {
       g.trimmed += saved - got;
       if (got) Manual.sets[l.key] = got; else delete Manual.sets[l.key];
     }
     l.sets = got;
-    left[l.size] = (left[l.size] || 0) - got;
+    for (const s of l.sizes) left[s] = (left[s] || 0) - got;
   }
   g.left = left;
+  // shown as the most complete sets the pieces make: halves join into full sets
+  const rs = rangesFor(g);
+  g.shelfAll = carve(g.avail, rs);
+  g.shelfNow = carve(left, rs);
 }
 
 /* What is physically on the shelf, as non-overlapping sets. Widest range first:
@@ -2114,20 +2116,13 @@ function rangesFor(g) {
 }
 
 function stockChips(g) {
-  const keys = Object.keys(g.pools || {}).filter(k => g.pools[k] > 0)
-    .sort((a, b) => (g.width[b] || 0) - (g.width[a] || 0) || String(a).localeCompare(String(b), undefined, { numeric: true }));
-  if (!keys.length) return '<span class="fr fr-0">no complete sets</span>';
-  return keys.map(k => {
-    const total = g.pools[k], left = Math.max(0, g.left[k] || 0), w = g.width[k] || 0;
-    const txt = left === total
-      ? esc(k) + ' = ' + total + ' set' + (total === 1 ? '' : 's') + ' (' + total * w + ' pcs)'
-      : esc(k) + ' = ' + left + ' of ' + total + ' sets left (' + left * w + ' pcs)';
-    return '<span class="fr' + (left ? '' : ' fr-0') + '">' + txt + '</span>';
-  }).join('');
+  const sets = g.shelfNow.sets.slice().sort((a, b) => (b.pcs / b.sets) - (a.pcs / a.sets) || String(a.size).localeCompare(String(b.size), undefined, { numeric: true }));
+  if (!sets.length) return '<span class="fr fr-0">' + (g.lines.some(l => l.sets) ? 'all given out' : 'no complete sets') + '</span>';
+  return sets.map(x => '<span class="fr">' + esc(x.size) + ' = ' + x.sets + ' set' + (x.sets === 1 ? '' : 's') + ' (' + x.pcs + ' pcs)</span>').join('');
 }
 
 /* how many more sets of this range still fit */
-const roomFor = (g, l) => Math.max(0, (g.left && g.left[l.size]) || 0);
+const roomFor = (g, l) => Math.max(0, Math.min(...l.sizes.map(s => (g.left && g.left[s]) || 0)));
 
 function allotCard(g) {
 
@@ -2135,12 +2130,10 @@ function allotCard(g) {
   const netTotal = Object.values((S.netted && S.netted.get(g.gk)) || {}).reduce((a, b) => a + b, 0);
   const held = Math.max(0, netTotal - g.freePcs);
   const allotted = g.lines.reduce((t, l) => t + l.sets * l.per, 0);
-  const loosePcs = (g.loose || []).reduce((t, x) => t + x.pcs, 0);
-  const nowPcs = Object.keys(g.left).reduce((t, k) => t + Math.max(0, g.left[k]) * (g.width[k] || 0), 0) + loosePcs;
 
   let h = '<div class="ag" data-g="' + esc(g.gk) + '">' +
     '<div class="ag-h"><b>DES-' + esc(g.design) + '</b> ' + esc(title(g.color)) +
-    '<span class="ag-t">' + g.freePcs + ' pcs</span></div>' +
+    '<span class="ag-t">' + g.freePcs + ' pcs' + (allotted ? ' · ' + allotted + ' allotted' : '') + '</span></div>' +
     '<div class="ag-f">' + stockChips(g) + '</div>' +
     (ledger.reduce((t, e) => t + e.q, 0) !== netTotal
       ? '<div class="ag-w">Some sizes are below zero in VastraApp — worth checking the entries.</div>'
@@ -2158,7 +2151,7 @@ function allotCard(g) {
     const ls = bySize.get(sz);
     const wanted = ls.reduce((t, l) => t + l.orderedSets, 0);
     const given = ls.reduce((t, l) => t + l.sets, 0);
-    const pool = g.pools[sz] || 0;
+    const pool = Math.max(0, Math.min(...ls[0].sizes.map(s => g.avail[s] || 0)));
     h += '<div class="sz-h"><b>' + esc(sz) + '</b>' +
       '<span>' + ls.length + ' part' + (ls.length === 1 ? 'y' : 'ies') + ' · ' + wanted + ' set' + (wanted === 1 ? '' : 's') + ' ordered' +
       (given ? ' · ' + given + ' allotted' : '') + '</span>' +
