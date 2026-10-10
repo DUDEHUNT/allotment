@@ -188,8 +188,8 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
 
 <header class="top">
   <h1>Pending &amp; Allotment</h1>
-  <span class="ver">v7.9</span>
-  <span class="chip" id="build">build 7.9</span>
+  <span class="ver">v8.0</span>
+  <span class="chip" id="build">build 8.0</span>
   <span class="chip" id="chip" title="Set Tracker connection">local</span>
 </header>
 <p class="sub-t">Your two pending reports, with stock already allotted against them.</p>
@@ -239,6 +239,7 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
 
 <div id="sourceWrap" hidden><div id="sources"></div></div>
 <div id="partyWrap" hidden><div id="parties"></div></div>
+<div id="sheetmsg"></div>
 <div id="msg"></div>
 
 <nav class="tabs" role="tablist">
@@ -1019,10 +1020,31 @@ const store = {
    Accepts either a normal sheet URL (converted to the gviz CSV
    endpoint) or a File → Share → Publish to web CSV link. Read-only.
 ------------------------------------------------------------------ */
+const STOCK_TAB = 'Stock Report - Detailed';
+
 const Sheets = {
+  last: {},        // which -> signature of the data last applied
+  lastPull: 0,
+
+  /* the same spreadsheet as the orders link, a different tab, picked by name */
+  byName(u, name) {
+    const id = String(u || '').match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+    if (!id || id[1] === 'e') return '';
+    return 'https://docs.google.com/spreadsheets/d/' + id[1] + '/gviz/tq?tqx=out:csv&sheet=' + encodeURIComponent(name);
+  },
+
+  /* what each source actually points at: a pasted link wins, otherwise stock
+     comes from the stock tab of the sheet the orders already come from */
+  source(which) {
+    if (S.src[which]) return S.src[which];
+    if (which === 'stock' && S.src.orders) return this.byName(S.src.orders, STOCK_TAB);
+    return '';
+  },
+
   normalize(u) {
     u = String(u || '').trim();
     if (!u) return '';
+    if (u.includes('/gviz/')) return u;
     if (u.includes('/pub')) return u.includes('output=csv') ? u : u + (u.includes('?') ? '&' : '?') + 'output=csv';
     const id = u.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
     if (!id) return u;
@@ -1054,6 +1076,27 @@ const Sheets = {
       .map(r => { const o = {}; head.forEach((h, i) => { o[h] = (r[i] == null ? '' : r[i]).trim(); }); return o; });
   },
 
+  /* Pasting into Sheets turns 4-8, 1-10, 6-10 into dates. Those rows either
+     arrive as a date or, through this endpoint, as a blank. Either way the
+     stock for that design would be silently short, so they are counted. */
+  badSizes(rows, qtyCol) {
+    const ok = /^(\d{1,2}(-\d{1,2})?|Default|Mix)$/i;
+    const bad = [];
+    for (const r of rows) {
+      const sz = String(r['Size'] == null ? '' : r['Size']).trim();
+      const q = Number(r[qtyCol] || 0);
+      if (sz === '' ? q !== 0 : !ok.test(sz)) bad.push(sz || '(blank)');
+    }
+    return bad;
+  },
+
+  sig(rows) {
+    const s = JSON.stringify(rows);
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+    return rows.length + ':' + s.length + ':' + h;
+  },
+
   async grab(url) {
     const r = await fetch(this.normalize(url), { credentials: 'omit' });
     if (!r.ok) throw new Error(r.status === 404 ? 'that tab was not found' : 'the sheet refused the request (' + r.status + ')');
@@ -1063,10 +1106,13 @@ const Sheets = {
   },
 
   async pull(which, quiet) {
-    const url = S.src[which];
+    const url = this.source(which);
     if (!url) return false;
     try {
       const rows = await this.grab(url);
+      if (!rows.length) throw new Error(which === 'stock' && !S.src.stock
+        ? 'the “' + STOCK_TAB + '” tab is empty or missing — check the tab name matches exactly'
+        : 'that tab has no rows');
       const head = rows.length ? Object.keys(rows[0]) : [];
       if (head.some(h => /^SUM of /i.test(h))) {
         throw new Error('that is a pivot tab, not the raw data — point this at the Input Design Pending Orders tab instead');
@@ -1074,41 +1120,98 @@ const Sheets = {
       if (which === 'orders') {
         const bad = missingCols(rows, ['Design Name', 'Customer Name', 'Color', 'Size', 'Pending Qty.'], 'pending order');
         if (bad) throw new Error(bad);
-        S.orderRows = slim(rows, O_COLS);
+        const mangled = this.badSizes(rows, 'Pending Qty.');
+        if (mangled.length) {
+          this.problems.push('<b>Orders not updated — ' + mangled.length + ' row' + (mangled.length > 1 ? 's have' : ' has') +
+            ' sizes Google Sheets turned into dates</b> (' + esc([...new Set(mangled)].slice(0, 3).join(', ')) + '). ' +
+            (S.orderRows ? 'Still using the last good orders. ' : '') + 'Format the Size column as Plain text and paste again.');
+          return false;
+        }
+        const slimmed = slim(rows, O_COLS);
+        const sg = this.sig(slimmed);
+        if (sg === this.last.orders) return 'same';
+        this.last.orders = sg;
+        S.orderRows = slimmed;
         S.meta.orders = 'from sheet';
       } else if (which === 'stock') {
         const bad = missingCols(rows, ['Design Name', 'Color Name', 'Size', 'Current Stock'], 'stock');
-        if (bad) throw new Error(bad);
-        S.stockRows = slim(rows, S_COLS);
-        S.meta.stock = 'from sheet';
+        if (bad) {
+          // an unknown tab name makes Google return the first tab — the orders — instead
+          if (!S.src.stock && rows.length && 'Customer Name' in rows[0]) {
+            throw new Error('there is no tab called “' + STOCK_TAB + '” in the sheet yet (Google sent back the orders tab instead). Create it with exactly that name and paste the VastraApp stock export into it, headers in row 1');
+          }
+          throw new Error(bad);
+        }
+        const mangled = this.badSizes(rows, 'Current Stock');
+        if (mangled.length) {
+          const eg = [...new Set(mangled)].slice(0, 3).join(', ');
+          this.problems.push('<b>Stock not updated — ' + mangled.length + ' row' + (mangled.length > 1 ? 's' : '') +
+            ' in “' + STOCK_TAB + '” have sizes Google Sheets turned into dates</b> (' + esc(eg) + '). ' +
+            (S.stockRows ? 'Still using the last good stock. ' : '') +
+            'To fix: in the sheet, select the Size column → Format → Number → Plain text, then paste the VastraApp data again.');
+          return false;
+        }
+        const slimmed = slim(rows, S_COLS);
+        const sg = this.sig(slimmed);
+        if (sg === this.last.stock) return 'same';
+        this.last.stock = sg;
+        S.stockRows = slimmed;
+        S.meta.stock = 'from “' + (S.src.stock ? 'sheet' : STOCK_TAB) + '”';
       } else {
         const bad = missingCols(rows, ['Challan No', 'Color', 'Size', 'Quantity'], 'purchase');
         if (bad) throw new Error(bad);
         S.purchRows = slim(rows, P_COLS);
         S.meta.purchase = 'from sheet';
       }
-      S.meta.when = new Date().toLocaleString();
       return true;
     } catch (e) {
       const cors = /Failed to fetch|NetworkError|Load failed/i.test(e.message || '');
-      msg('<b>Could not read the ' + which + ' tab.</b> ' + (cors
+      if (quiet && cors) { this.netOnly = true; return false; }
+      this.problems.push('<b>Could not read the ' + which + ' tab.</b> ' + (cors
         ? 'Google blocked the request from this page. Fix it in the sheet: File → Share → Publish to web → pick that tab → CSV → Publish, then paste the published link here instead of the normal one.'
-        : esc(e.message)), 'bad');
+        : esc(e.message)));
       return false;
     }
   },
 
   async pullAll(quiet) {
     if (this.busy) return;
-    if (!S.src.orders && !S.src.stock && !S.src.purchase) return;
+    if (!this.source('orders') && !this.source('stock') && !this.source('purchase')) return;
     this.busy = true;
-    $('#refresh').textContent = 'Pulling…';
-    const a = await this.pull('orders', quiet);
-    const b = await this.pull('stock', quiet);
-    const c = await this.pull('purchase', quiet);
-    $('#refresh').textContent = 'Refresh from sheet';
-    this.busy = false;
-    if (a || b || c) { save(); rebuild(); if (!quiet) msg(''); }
+    this.lastPull = Date.now();
+    this.problems = [];
+    this.netOnly = false;
+    const btn = $('#refresh'); if (btn) btn.textContent = 'Pulling…';
+    const r = [];
+    try {
+      r.push(await this.pull('orders', quiet));
+      r.push(await this.pull('stock', quiet));
+      r.push(await this.pull('purchase', quiet));
+    } finally {
+      if (btn) btn.textContent = 'Refresh from sheet';
+      this.busy = false;
+    }
+    const changed = r.some(x => x === true);
+    if (changed) {
+      S.meta.when = new Date().toLocaleString();
+      save(); rebuild();
+    }
+    // a quiet background check that only hit a network blip leaves the last word standing
+    if (!(quiet && this.netOnly && !this.problems.length)) {
+      const box = $('#sheetmsg');
+      if (this.problems.length) box.innerHTML = this.problems.map(p => '<div class="note bad">' + p + '</div>').join('');
+      else if (!quiet && !changed && r.some(x => x === 'same')) box.innerHTML = '<div class="note">Sheet checked — nothing has changed since the last pull.</div>';
+      else box.innerHTML = '';
+    }
+  },
+
+  /* Paste in the sheet, come back to the app: it checks again by itself.
+     Also checks every two minutes while the app is open on screen. */
+  watch() {
+    const due = () => document.visibilityState === 'visible' && Date.now() - this.lastPull > 30000;
+    document.addEventListener('visibilitychange', () => { if (due()) this.pullAll(true); });
+    window.addEventListener('focus', () => { if (due()) this.pullAll(true); });
+    setInterval(() => { if (document.visibilityState === 'visible' && Date.now() - this.lastPull > 115000) this.pullAll(true); }, 30000);
   },
 };
 
@@ -2396,7 +2499,12 @@ function renderSources() {
     '<label class="fld"><span>Purchase inward tab</span>' +
     '<input type="text" id="srcPurch" placeholder="paste the purchase tab link, or leave blank and upload" value="' + esc(S.src.purchase) + '"></label>' +
     '<label class="fld"><span>Stock tab</span>' +
-    '<input type="text" id="srcStock" placeholder="paste the stock tab link, or leave blank and upload the file" value="' + esc(S.src.stock) + '"></label>' +
+    '<input type="text" id="srcStock" placeholder="' + (Sheets.byName(S.src.orders, STOCK_TAB)
+      ? 'leave blank — stock comes from the “' + esc(STOCK_TAB) + '” tab automatically'
+      : 'paste the stock tab link, or leave blank and upload the file') + '" value="' + esc(S.src.stock) + '"></label>' +
+    (Sheets.byName(S.src.orders, STOCK_TAB) && !S.src.stock
+      ? '<p class="hintline">Stock: reading the “' + esc(STOCK_TAB) + '” tab of the same sheet. Paste VastraApp’s stock there; the app picks it up when you come back to it, and every two minutes while it is open.</p>'
+      : '') +
     '<div class="bar"><button id="saveSrc" class="primary">Save and pull</button>' +
     '<span class="hintline">' + (S.src.orders || S.src.stock || S.src.purchase
       ? 'Saved links: ' + ['orders', 'stock', 'purchase'].filter(k => S.src[k]).join(', ')
@@ -2462,6 +2570,7 @@ restore();
 Live.chip('wait', 'connecting');
 firebaseReady.then(() => Live.start(), () => Live.chip('', 'offline board'));
 Sheets.pullAll(false);
+Sheets.watch();
 
 </script>
 </body>
