@@ -159,6 +159,10 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
 .pr-sum{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;margin:4px 0 12px;font-size:12.5px;color:var(--ink-2)}
 .pr-n{font-weight:600;color:var(--ink);padding:3px 10px;border:1px solid var(--rule);border-radius:12px;background:var(--card)}
 .pr-key{font-size:11.5px;color:var(--ink-2);margin:-2px 0 10px;padding:0 12px}
+.pc-stage{display:flex;flex-direction:column;line-height:1.15}
+.pc-s{white-space:nowrap}
+.pc-d{font-size:11px;font-weight:600;color:var(--w);margin-top:2px}
+.pc-dl{color:var(--short)}
 .pc sup{font-size:10px;margin-left:1px}
 .pr-up{display:inline-block;font-size:12.5px;color:var(--ink-2);text-decoration:underline;cursor:pointer;margin:-4px 0 10px}
 .pr-grid{display:grid;grid-template-columns:minmax(78px,1.25fr) repeat(4,minmax(0,1fr));gap:6px;align-items:center}
@@ -219,8 +223,8 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
 
 <header class="top">
   <h1>Pending &amp; Allotment</h1>
-  <span class="ver">v8.1</span>
-  <span class="chip" id="build">build 8.1</span>
+  <span class="ver">v8.2</span>
+  <span class="chip" id="build">build 8.2</span>
   <span class="chip" id="chip" title="Set Tracker connection">local</span>
 </header>
 <p class="sub-t">Your two pending reports, with stock already allotted against them.</p>
@@ -2036,6 +2040,8 @@ const Jobs = {
           pieces: [...new Set(ss.map(s => s.piece))],
           state: at.length ? 'at' : (ss.length ? 'done' : 'none'),
           due: at.length && exp.length === at.length ? Math.max(...exp) : null,
+          // the date written on the jobslip; split work shows the last of its dates
+          when: exp.length ? Math.max(...exp) : null,
           late: exp.some(e => e < today),
           doneOn: !at.length && ss.length ? Math.max(...ss.map(s => s.received || s.date || 0)) : null,
         };
@@ -2046,15 +2052,24 @@ const Jobs = {
         : (req.some(c => c.state === 'none') || comps.some(c => c.state === 'at' && !c.due)) ? 'incomplete'
         : 'ontrack';
       const oldest = Math.min(...pend.map(s => s.date || today));
+      const dues = pend.map(s => s.expected).filter(Boolean);
+      const upcoming = dues.filter(d => d >= today);
+      const overdue = dues.filter(d => d < today);
+      const next = upcoming.length ? Math.min(...upcoming) : null;
+      const lastLate = overdue.length ? Math.max(...overdue) : null;
       const lots = [...new Set(cycle.map(s => s.lot).filter(Boolean))];
       out.push({
-        design, comps, status, lots, oldest, ageDays: Math.round((today - oldest) / dayMs),
+        design, comps, status, lots, oldest, next, lastLate,
         title: lots.length === 1 && lots[0].indexOf(design) === 0 ? lots[0] : design,
         karigars: [...new Set(pend.map(s => s.karigar))],
         colors: [...new Set(cycle.map(s => s.color))],
       });
     }
-    return out.sort((a, b) => a.design.localeCompare(b.design, undefined, { numeric: true }));
+    const band = r => r.next != null ? 0 : r.lastLate != null ? 1 : 2;
+    return out.sort((a, b) => band(a) - band(b)
+      || (band(a) === 0 ? a.next - b.next : 0)
+      || (band(a) === 1 ? b.lastLate - a.lastLate : 0)
+      || a.design.localeCompare(b.design, undefined, { numeric: true }));
   },
 };
 
@@ -2065,11 +2080,11 @@ const STAGE_CELL = { Stitching: 'Stitch', Button: 'Button', Washing: 'Wash', Emb
 function prodCell(c) {
   if (c.state === 'done') return '<span class="pc pc-ok">✓</span>';
   if (c.state === 'none') return '<span class="pc pc-no">—</span>';
-  if (c.due) return '<span class="pc ' + (c.late ? 'pc-late' : 'pc-date') + '">' + fmtDay(c.due) + '</span>';
   const st = stageShort(c.lead && c.lead.job);
   // more than one place at once (part stitched, part at buttons) gets a +
   const places = new Set(c.at.map(a => stageShort(a.job) + '|' + a.karigar)).size;
-  return '<span class="pc pc-stage">' + esc(STAGE_CELL[st] || st) + (places > 1 ? '<sup>+</sup>' : '') + '</span>';
+  return '<span class="pc pc-stage"><span class="pc-s">' + esc(STAGE_CELL[st] || st) + (places > 1 ? '<sup>+</sup>' : '') + '</span>' +
+    (c.when ? '<small class="pc-d' + (c.when < todayMs() ? ' pc-dl' : '') + '">' + fmtDay(c.when) + '</small>' : '') + '</span>';
 }
 
 function renderProduction() {
@@ -2094,17 +2109,15 @@ function renderProduction() {
     ['ontrack', 'late', 'incomplete', 'done'].map(k =>
       '<span class="sm"><i class="sdot ' + DOT2[k] + '"></i>' + count[k] + ' ' + STATUS_LABEL[k] + '</span>').join('') + '</div>';
   if (staleDays > 14) {
-    h += '<div class="note bad"><b>Latest jobslip in this data is ' + newest + '</b> — ' + staleDays +
-      ' days ago. Anything shown as still with a karigar may have come back since. Re-export from VastraApp with the full date range.</div>';
+    h += '<div class="note">Latest jobslip here is from <b>' + newest + '</b>. Once new jobslips are entered and pasted in, this board shows the current position.</div>';
   }
   h += '<div class="pr-grid pr-head"><span>Pattern</span><span>Main</span><span>Inner</span><span>Bottoms</span><span>Extra</span></div>';
-  h += '<p class="pr-key">✓ back · date = due · Stitch, Button… = where it is, no due date · + split across karigars · — not started · tap a row for details</p>';
+  h += '<p class="pr-key">Where each part is, with the expected date from its jobslip · ✓ back · + split across karigars · — not started · soonest arrivals first, overdue and undated last</p>';
   if (!rows.length) h += '<div class="empty">Nothing matches that search.</div>';
   for (const r of rows) {
     const open = S.openLot.has(r.design);
     h += '<div class="pr-row' + (open ? ' open' : '') + '" data-lot="' + esc(r.design) + '">' +
-      '<div class="pr-grid"><span class="pr-p"><i class="sdot ' + DOT2[r.status] + '"></i><b>' + esc(r.title) + '</b>' +
-      (r.ageDays > 30 ? '<small class="pr-age">' + r.ageDays + 'd</small>' : '') + '</span>' +
+      '<div class="pr-grid"><span class="pr-p"><i class="sdot ' + DOT2[r.status] + '"></i><b>' + esc(r.title) + '</b></span>' +
       r.comps.map(prodCell).join('') + '</div>';
     if (open) h += prodDetail(r);
     h += '</div>';
@@ -2122,10 +2135,9 @@ function prodDetail(r) {
       (c.pieces.length ? ' · ' + c.pieces.map(esc).join(', ') : '') +
       '<span>' + (c.state === 'done' ? 'done ' + fmtDay(c.doneOn) : c.state === 'none' ? 'not started' : 'in progress') + '</span></div>';
     for (const a of c.at.slice().sort((x, y) => x.depth - y.depth || x.color.localeCompare(y.color))) {
-      const days = a.date ? Math.round((today - a.date) / dayMs) : null;
       h += '<div class="pr-at"><span class="pr-who">' + esc(a.karigar || '—') + '</span>' +
         '<span>' + esc(stageShort(a.job)) + ' · ' + esc(a.color || '—') + ' · <b>' + a.left + ' pcs</b></span>' +
-        '<span class="pr-when">since ' + fmtDay(a.date) + (days != null && days > 30 ? ' (' + days + ' days)' : '') +
+        '<span class="pr-when">since ' + fmtDay(a.date) +
         (a.expected ? ' · due <span class="' + (a.expected < today ? 'bal' : 'ready') + '">' + fmtDay(a.expected) + '</span>' : ' · no due date') +
         ' · ' + esc(a.no) + '</span></div>';
     }
