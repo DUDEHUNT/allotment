@@ -156,6 +156,37 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
 .ci span:first-child{flex:1 1 auto}
 .ci-p{flex:0 0 58px;text-align:right;color:var(--ink-2);font-size:12.5px}
 .ct-t{border-top:1px solid var(--rule);margin-top:4px;padding-top:7px;font-weight:600;text-align:right;font-size:13.5px}
+.pr-sum{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;margin:4px 0 12px;font-size:12.5px;color:var(--ink-2)}
+.pr-n{font-weight:600;color:var(--ink);padding:3px 10px;border:1px solid var(--rule);border-radius:12px;background:var(--card)}
+.pr-key{font-size:11.5px;color:var(--ink-2);margin:-2px 0 10px;padding:0 12px}
+.pc sup{font-size:10px;margin-left:1px}
+.pr-up{display:inline-block;font-size:12.5px;color:var(--ink-2);text-decoration:underline;cursor:pointer;margin:-4px 0 10px}
+.pr-grid{display:grid;grid-template-columns:minmax(78px,1.25fr) repeat(4,minmax(0,1fr));gap:6px;align-items:center}
+.pr-head{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);padding:0 12px 6px}
+.pr-row{background:var(--card);border:1px solid var(--rule);border-radius:6px;margin-bottom:6px;padding:12px;cursor:pointer}
+.pr-row.open{border-color:var(--ink-2)}
+.pr-p{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0}
+.pr-p b{font-size:15px;letter-spacing:-.01em;word-break:break-word}
+.pr-age{font-size:10.5px;color:var(--short);font-weight:600}
+.pc{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pc-ok{color:var(--good);font-size:16px}
+.pc-no{color:var(--rule);font-weight:400}
+.pc-date{color:var(--w)}
+.pc-late{color:var(--short)}
+.pc-stage{color:var(--amber);font-size:12px}
+.pr-d{margin-top:12px;border-top:1px solid var(--rule-2);padding-top:10px;cursor:default}
+.pr-meta{font-size:12px;color:var(--ink-2);margin-bottom:8px}
+.pr-c{margin-bottom:11px}
+.pr-ch{display:flex;gap:6px;align-items:baseline;font-size:13px;padding:5px 8px;background:var(--sub);border-radius:3px}
+.pr-ch span{margin-left:auto;font-size:12px;color:var(--ink-2)}
+.pr-at{display:flex;flex-wrap:wrap;gap:2px 10px;padding:6px 8px;border-bottom:1px solid var(--rule-2);font-size:12.5px}
+.pr-who{font-weight:600;min-width:120px}
+.pr-when{color:var(--ink-2);font-size:12px;width:100%}
+.pr-hist{font-size:12px;color:var(--ink-2);padding:6px 8px}
+.pr-o{display:flex;gap:10px;padding:5px 8px;border-bottom:1px solid var(--rule-2);font-size:12.5px}
+.pr-o span:first-child{flex:1}
+.pr-o span:nth-child(2){color:var(--ink-2)}
+@media(max-width:760px){.pr-grid{grid-template-columns:minmax(70px,1.3fr) repeat(4,minmax(0,1fr));gap:4px}.pr-row{padding:11px 9px}.pc{font-size:12px}}
 .srch{display:flex;gap:6px;align-items:center;margin:0 0 14px}
 .srch input{flex:1 1 auto;font-size:15px;padding:9px 11px}
 .srch .clr{padding:9px 12px;color:var(--ink-2);font-size:17px;line-height:1}
@@ -188,8 +219,8 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
 
 <header class="top">
   <h1>Pending &amp; Allotment</h1>
-  <span class="ver">v8.0</span>
-  <span class="chip" id="build">build 8.0</span>
+  <span class="ver">v8.1</span>
+  <span class="chip" id="build">build 8.1</span>
   <span class="chip" id="chip" title="Set Tracker connection">local</span>
 </header>
 <p class="sub-t">Your two pending reports, with stock already allotted against them.</p>
@@ -269,7 +300,12 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
   <div id="allot-body"><div class="empty">Load the pending order and stock files.</div></div>
 </section>
 <section class="panel" id="p-prod">
-  <div id="prod-body"><div class="empty">Load the purchase inward file — this board is built from it.</div></div>
+  <div class="srch">
+    <input type="text" id="qProd" placeholder="Search design, lot, karigar or colour" autocomplete="off">
+    <button type="button" class="clr" id="clrProd" aria-label="Clear search">&times;</button>
+  </div>
+  <label class="pr-up">Load jobcard file<input type="file" id="fJobs" accept=".xlsx,.xls" class="sr"></label>
+  <div id="prod-body"><div class="empty">Paste the VastraApp jobcard export into a tab called “Jobslips” in your pending-order sheet.</div></div>
 </section>
 <section class="panel" id="p-design">
   <div class="srch">
@@ -989,7 +1025,7 @@ const Lots = {
 const S = {
   orderRows: null, stockRows: null,
   meta: { orders: '', stock: '', track: '', purchase: '', when: '' },
-  track: null, purchRows: null,
+  track: null, purchRows: null, jobRows: null,
   src: { orders: '', stock: '', purchase: '' },
   lines: [], stockMap: null,
   cats: {}, fullOnly: {}, names: {},
@@ -998,7 +1034,7 @@ const S = {
   asub: 'design',
   openParty: new Set(),
   openLot: new Set(),
-  q: { design: '', cust: '', allot: '' },
+  q: { design: '', cust: '', allot: '', prod: '' },
   open: new Set(),      // expanded design rows
   openCust: new Set(),  // expanded customer sub-rows
 };
@@ -1038,6 +1074,7 @@ const Sheets = {
   source(which) {
     if (S.src[which]) return S.src[which];
     if (which === 'stock' && S.src.orders) return this.byName(S.src.orders, STOCK_TAB);
+    if (which === 'jobs' && S.src.orders) return this.byName(S.src.orders, JOBS_TAB);
     return '';
   },
 
@@ -1110,6 +1147,7 @@ const Sheets = {
     if (!url) return false;
     try {
       const rows = await this.grab(url);
+      if (!rows.length && which === 'jobs') return false;
       if (!rows.length) throw new Error(which === 'stock' && !S.src.stock
         ? 'the “' + STOCK_TAB + '” tab is empty or missing — check the tab name matches exactly'
         : 'that tab has no rows');
@@ -1157,6 +1195,20 @@ const Sheets = {
         this.last.stock = sg;
         S.stockRows = slimmed;
         S.meta.stock = 'from “' + (S.src.stock ? 'sheet' : STOCK_TAB) + '”';
+      } else if (which === 'jobs') {
+        const bad = missingCols(rows, ['Jobslip No', 'Design Name', 'Piece Name', 'Jobslip Status'], 'jobslip');
+        if (bad) {
+          if (rows.length && 'Customer Name' in rows[0]) {
+            throw new Error('there is no tab called “' + JOBS_TAB + '” in the sheet yet. Create it with exactly that name and paste the VastraApp jobcard export into it, headers in row 1');
+          }
+          throw new Error(bad);
+        }
+        const slimmed = slim(rows, J_COLS);
+        const sg = this.sig(slimmed);
+        if (sg === this.last.jobs) return 'same';
+        this.last.jobs = sg;
+        S.jobRows = slimmed;
+        S.meta.jobs = 'from “' + JOBS_TAB + '”';
       } else {
         const bad = missingCols(rows, ['Challan No', 'Color', 'Size', 'Quantity'], 'purchase');
         if (bad) throw new Error(bad);
@@ -1176,7 +1228,7 @@ const Sheets = {
 
   async pullAll(quiet) {
     if (this.busy) return;
-    if (!this.source('orders') && !this.source('stock') && !this.source('purchase')) return;
+    if (!this.source('orders') && !this.source('stock') && !this.source('purchase') && !this.source('jobs')) return;
     this.busy = true;
     this.lastPull = Date.now();
     this.problems = [];
@@ -1187,6 +1239,7 @@ const Sheets = {
       r.push(await this.pull('orders', quiet));
       r.push(await this.pull('stock', quiet));
       r.push(await this.pull('purchase', quiet));
+      r.push(await this.pull('jobs', quiet));
     } finally {
       if (btn) btn.textContent = 'Refresh from sheet';
       this.busy = false;
@@ -1533,7 +1586,7 @@ $('#fTrack').addEventListener('change', e => {
 
 /* ---------- persistence ---------- */
 function save() {
-  const ok = store.set('allot.data', { orders: S.orderRows, stock: S.stockRows, purchase: S.purchRows, track: S.track, meta: S.meta });
+  const ok = store.set('allot.data', { orders: S.orderRows, stock: S.stockRows, purchase: S.purchRows, jobs: S.jobRows, track: S.track, meta: S.meta });
   if (!ok) msg('The files are loaded but too large to keep after a refresh. Everything still works this session.', 'bad');
   saveParties();
 }
@@ -1551,6 +1604,7 @@ function restore() {
   if (d) {
     if (d.orders) { S.orderRows = d.orders; S.stockRows = d.stock; }
     if (d.purchase) { S.purchRows = d.purchase; }
+    if (d.jobs) { S.jobRows = d.jobs; }
     if (d.track) { S.track = d.track; SetTracker.load(d.track); }
     S.meta = d.meta || S.meta;
   }
@@ -1765,6 +1819,7 @@ document.addEventListener('click', e => {
   }
   const sub2 = e.target.closest && e.target.closest('[data-asub]');
   if (sub2) { S.asub = sub2.dataset.asub; return renderAllot(); }
+  if (e.target.closest && e.target.closest('.pr-d')) return;   // reading the detail, not closing it
   const lotEl = e.target.closest && e.target.closest('[data-lot]');
   if (lotEl) {
     const k = lotEl.dataset.lot;
@@ -1861,175 +1916,254 @@ function renderCustomer() {
     : h + '<div class="empty">Nothing matches that search.</div>';
 }
 
-/* ---------- production board (read-only mirror of Set Tracker) ----------
-   Rows come from purchase inward: every lot cut inside the age window.
-   Stages, dates and ticks come from the board. Dates are entered in Set
-   Tracker itself; nothing here writes. */
+/* ---------- production (from VastraApp jobslips) ----------
+   One row per design with work out at karigars right now, laid out like the
+   Set Tracker board: where each component is — main piece, inner, bottoms,
+   extra. Read only; it reflects whatever the Jobslips tab says. */
 
-const ROLE_ORDER = ['main', 'inner', 'bottoms', 'extra'];
-const DOT = { tight: 'good', spread: 'bad', incomplete: 'warn', done: 'done' };
+const JOBS_TAB = 'Jobslips';
+const J_COLS = ['Date', 'Jobslip No', 'Manual challan no.', 'Karigar Name', 'Job Type', 'Expected Date',
+  'Design Name', 'Piece Name', 'Color Name', 'Color qty', 'Remaining Design Qty.', 'Jobslip Status',
+  'Last Received Date', 'Transfer From Jobslip No.'];
 
-function boardData() {
-  if (Live.on && Live.sets) {
-    return {
-      sets: Live.sets,
-      categories: Live.categories || (S.track && S.track.categories) || [],
-      variableStages: Live.variableStages || (S.track && S.track.variableStages) || [],
-    };
-  }
-  return {
-    sets: (S.track && S.track.sets) || [],
-    categories: (S.track && S.track.categories) || [],
-    variableStages: (S.track && S.track.variableStages) || [],
-  };
+const ROLES = ['main', 'inner', 'bottoms', 'extra'];
+const ROLE_LABEL = { main: 'Main', inner: 'Inner', bottoms: 'Bottoms', extra: 'Extra' };
+const ROLE_OF = {
+  jacket: 'main', coat: 'main', waistcoat: 'main', jodhpuri: 'main', blazer: 'main', sherwani: 'main', kurta: 'main',
+  shirt: 'inner', 't shirt': 'inner', 'tshirt': 'inner', 't-shirt': 'inner',
+  pant: 'bottoms', pent: 'bottoms', trouser: 'bottoms', pajama: 'bottoms', breeches: 'bottoms',
+};
+const roleOf = p => ROLE_OF[String(p || '').trim().toLowerCase()] || 'extra';
+const pieceName = p => { const s = String(p || '').trim(); return /^pent$/i.test(s) ? 'Pant' : s; };
+
+/* VastraApp writes dd-mm-yyyy; once pasted into Sheets it may come back as dd/mm/yyyy or 9-Jan-2026 */
+function jDate(v) {
+  const s = String(v == null ? '' : v).trim();
+  if (!s) return null;
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) return Date.UTC(+m[1], +m[2] - 1, +m[3]);
+  m = s.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{2,4})$/);
+  if (m) return Date.UTC(+m[3] < 100 ? 2000 + +m[3] : +m[3], +m[2] - 1, +m[1]);
+  m = s.match(/^(\d{1,2})[-\s]([A-Za-z]{3})[a-z]*[-\s,]+(\d{4})$/);
+  if (m && MON[m[2].toLowerCase()] !== undefined) return Date.UTC(+m[3], MON[m[2].toLowerCase()], +m[1]);
+  return null;
+}
+const dayMs = 86400000;
+const todayMs = () => { const d = new Date(); return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()); };
+const fmtDay = ms => ms ? shortDate(new Date(ms).toISOString().slice(0, 10)) : '—';
+
+function stageShort(job) {
+  const j = String(job || '').toLowerCase();
+  if (j.includes('stitch')) return 'Stitching';
+  if (j.includes('button') || j.includes('kaanch')) return 'Button';
+  if (j.includes('wash')) return 'Washing';
+  if (j.includes('embroid')) return 'Embroidery';
+  if (j.includes('print')) return 'Printing';
+  if (j.includes('fus')) return 'Fusing';
+  if (j.includes('cut')) return 'To cut';
+  if (j.includes('idle')) return 'Idle';
+  return job || '—';
 }
 
-/* A lot with no board entry borrows its category from a sibling of the same
-   design number — 1331-4 follows 1331-2 — because purchase never records it. */
-function inferCat(lotIdStr, sets, byId) {
-  const direct = byId.get(lotIdStr);
-  if (direct) return { catId: direct.catId, via: null };
-  const base = String(lotIdStr).split('-')[0];
-  for (const st of sets) {
-    const sid = lotId(st.pattern);
-    if (sid !== lotIdStr && String(sid).split('-')[0] === base && st.catId) {
-      return { catId: st.catId, via: st.pattern };
+const Jobs = {
+  slips: [],
+
+  build(rows) {
+    const slips = (rows || []).map((r, i) => {
+      const rem = r['Remaining Design Qty.'];
+      return {
+        i, no: String(r['Jobslip No'] || '').trim(), date: jDate(r['Date']),
+        karigar: String(r['Karigar Name'] || '').trim(), job: String(r['Job Type'] || '').trim(),
+        design: stripDes(r['Design Name']), piece: pieceName(r['Piece Name']),
+        color: String(r['Color Name'] || '').trim(), qty: Number(r['Color qty'] || 0),
+        remaining: rem === '' || rem == null ? null : Number(rem),
+        pending: /pending/i.test(String(r['Jobslip Status'] || '')),
+        expected: jDate(r['Expected Date']), received: jDate(r['Last Received Date']),
+        lot: String(r['Manual challan no.'] || '').trim(),
+        from: String(r['Transfer From Jobslip No.'] || '').trim(),
+        parent: null, depth: 0,
+      };
+    }).filter(s => s.design && s.no);
+
+    // Jobslip numbers restart, so a transfer is linked to the slip with that
+    // number for the same design, piece and colour, dated on or before it.
+    for (const s of slips) {
+      if (!s.from) continue;
+      let best = null;
+      for (const p of slips) {
+        if (p === s || p.no !== s.from || p.design !== s.design || p.piece !== s.piece) continue;
+        if (p.color && s.color && p.color.toLowerCase() !== s.color.toLowerCase()) continue;
+        if (p.date && s.date && p.date > s.date) continue;
+        if (!best || (p.date || 0) > (best.date || 0)) best = p;
+      }
+      s.parent = best;
     }
-  }
-  return { catId: null, via: null };
-}
+    for (const s of slips) {
+      let p = s, n = 0;
+      while (p.parent && n < 30) { p = p.parent; n++; if (!s.lot && p.lot) s.lot = p.lot; }
+      s.depth = n; s.root = p;
+    }
+    this.slips = slips;
+    this.newest = Math.max(0, ...slips.map(s => s.date || 0));
+    return this;
+  },
 
-function productionRows() {
-  const { sets, categories } = boardData();
-  const byId = new Map();
-  for (const st of sets) byId.set(lotId(st.pattern), st);
-  const cats = new Map(categories.map(c => [c.id, c]));
-  const win = (S.track && S.track.window) || 7;
+  /* one row per design that has anything out right now */
+  rows() {
+    const by = new Map();
+    for (const s of this.slips) { if (!by.has(s.design)) by.set(s.design, []); by.get(s.design).push(s); }
+    const today = todayMs();
+    const out = [];
+    for (const [design, all] of by) {
+      const left = s => (s.remaining != null && s.remaining >= 0 ? s.remaining : s.qty);
+      const pend = all.filter(s => s.pending && left(s) > 0);
+      if (!pend.length) continue;
+      // the current round of work: from where the oldest open chain started
+      const starts = pend.map(s => s.root.date).filter(Boolean);
+      const from = starts.length ? Math.min(...starts) - 7 * dayMs : -Infinity;
+      const cycle = all.filter(s => (s.date || 0) >= from);
+      // a design normally has the components it has ever had
+      const usual = new Set(all.map(s => roleOf(s.piece)));
+      usual.add('main');
 
-  // the board's own list first, then anything cut recently it has not caught up with
-  const byLotPurchase = Lots.all || new Map();
-  const ids = [];
-  const seen = new Set();
-  for (const st of sets) {
-    const id = lotId(st.pattern);
-    if (id && !seen.has(id)) { seen.add(id); ids.push(id); }
-  }
-  for (const l of (Lots.recent || [])) if (!seen.has(l.id)) { seen.add(l.id); ids.push(l.id); }
+      const comps = ROLES.map(role => {
+        const ss = cycle.filter(s => roleOf(s.piece) === role);
+        const at = ss.filter(s => s.pending && left(s) > 0).map(s => Object.assign({}, s, { left: left(s) }));
+        const exp = at.map(a => a.expected).filter(Boolean);
+        const lead = at.slice().sort((a, b) => a.depth - b.depth || (a.date || 0) - (b.date || 0))[0] || null;
+        return {
+          role, required: usual.has(role), slips: ss, at, lead,
+          pieces: [...new Set(ss.map(s => s.piece))],
+          state: at.length ? 'at' : (ss.length ? 'done' : 'none'),
+          due: at.length && exp.length === at.length ? Math.max(...exp) : null,
+          late: exp.some(e => e < today),
+          doneOn: !at.length && ss.length ? Math.max(...ss.map(s => s.received || s.date || 0)) : null,
+        };
+      });
+      const req = comps.filter(c => c.required);
+      const status = req.every(c => c.state === 'done') ? 'done'
+        : comps.some(c => c.late) ? 'late'
+        : (req.some(c => c.state === 'none') || comps.some(c => c.state === 'at' && !c.due)) ? 'incomplete'
+        : 'ontrack';
+      const oldest = Math.min(...pend.map(s => s.date || today));
+      const lots = [...new Set(cycle.map(s => s.lot).filter(Boolean))];
+      out.push({
+        design, comps, status, lots, oldest, ageDays: Math.round((today - oldest) / dayMs),
+        title: lots.length === 1 && lots[0].indexOf(design) === 0 ? lots[0] : design,
+        karigars: [...new Set(pend.map(s => s.karigar))],
+        colors: [...new Set(cycle.map(s => s.color))],
+      });
+    }
+    return out.sort((a, b) => a.design.localeCompare(b.design, undefined, { numeric: true }));
+  },
+};
 
-  return ids.map(id => {
-    const lot = byLotPurchase.get(id) || { id, cut: null, pieces: 0, rows: [] };
-    const st = byId.get(lot.id) || null;
-    const guess = inferCat(lot.id, sets, byId);
-    const cat = cats.get(st ? st.catId : guess.catId) || null;
-    const parts = (cat && cat.parts) || [];
-    const dates = (st && st.dates) || {};
-    const done = new Set((st && st.done) || []);
+const DOT2 = { ontrack: 'good', late: 'bad', incomplete: 'warn', done: 'done' };
+const STATUS_LABEL = { ontrack: 'on track', late: 'late', incomplete: 'incomplete', done: 'done' };
 
-    const cells = parts.map(p => ({
-      key: p.key, label: p.label, role: p.role, optional: p.optional,
-      done: done.has(p.key),
-      date: st ? SetTracker.effDate(st, p.key) : (dates[p.key] || null),
-      shifted: st ? SetTracker.varDays(st, p.key) : 0,
-    }));
-    const req = cells.filter(c => !c.optional);
-    const dated = cells.filter(c => c.date).map(c => c.date).sort();
-    const spread = dated.length > 1
-      ? Math.round((Date.parse(dated[dated.length - 1]) - Date.parse(dated[0])) / 86400000) : 0;
-    const allReqDone = req.length > 0 && req.every(c => c.done);
-    // no category means no stage list at all — that is untracked, not on schedule
-    const missing = !parts.length || req.some(c => !c.date && !c.done);
-    const status = allReqDone ? 'done' : (missing ? 'incomplete' : (spread > win ? 'spread' : 'tight'));
-    // every required stage dated means the lot lands when the slowest one does
-    const ready = (!missing && dated.length) ? dated[dated.length - 1] : null;
-
-    return {
-      lot, st, cat, cells, status, spread, ready, win,
-      onBoard: !!st,
-      label: st ? st.pattern : lot.id,
-      priority: !!(st && st.priority),
-      note: (st && st.note) || '',
-      catVia: st ? null : guess.via,
-    };
-  });
+const STAGE_CELL = { Stitching: 'Stitch', Button: 'Button', Washing: 'Wash', Embroidery: 'Embr.', Printing: 'Print', Fusing: 'Fuse', 'To cut': 'To cut', Idle: 'Idle' };
+function prodCell(c) {
+  if (c.state === 'done') return '<span class="pc pc-ok">✓</span>';
+  if (c.state === 'none') return '<span class="pc pc-no">—</span>';
+  if (c.due) return '<span class="pc ' + (c.late ? 'pc-late' : 'pc-date') + '">' + fmtDay(c.due) + '</span>';
+  const st = stageShort(c.lead && c.lead.job);
+  // more than one place at once (part stitched, part at buttons) gets a +
+  const places = new Set(c.at.map(a => stageShort(a.job) + '|' + a.karigar)).size;
+  return '<span class="pc pc-stage">' + esc(STAGE_CELL[st] || st) + (places > 1 ? '<sup>+</sup>' : '') + '</span>';
 }
 
 function renderProduction() {
-  const rows = productionRows();
-  if (!$('#prod-body')) return;
-  if (!rows.length) {
-    return void ($('#prod-body').innerHTML =
-      '<div class="empty">Nothing to show — connect Set Tracker, or load the purchase inward file.</div>');
+  const body = $('#prod-body');
+  if (!body) return;
+  if (!S.jobRows || !S.jobRows.length) {
+    body.innerHTML = '<div class="empty">Paste the VastraApp jobcard export into a tab called “' + esc(JOBS_TAB) +
+      '” in your pending-order sheet, or load the file here.</div>';
+    return;
   }
-  const count = { tight: 0, spread: 0, incomplete: 0, done: 0 };
-  for (const r of rows) count[r.status]++;
+  Jobs.build(S.jobRows);
+  const all = Jobs.rows();
+  const q = (S.q.prod || '').trim().toLowerCase();
+  const rows = q ? all.filter(r => hits(q, r.design, r.colors.join(' '),
+    r.lots.join(' ') + ' ' + r.karigars.join(' ') + ' ' + r.comps.map(c => c.pieces.join(' ')).join(' '))) : all;
+  const count = { ontrack: 0, late: 0, incomplete: 0, done: 0 };
+  for (const r of all) count[r.status]++;
+  const newest = Jobs.newest ? fmtDay(Jobs.newest) : '—';
+  const staleDays = Jobs.newest ? Math.round((todayMs() - Jobs.newest) / dayMs) : 0;
 
-  let h = '<h2 class="sec">Production</h2>' +
-    '<p class="exp">' + rows.length + ' lots — everything on the board, plus anything cut in the last ' +
-    Lots.ageDays + ' days that the board has not picked up. ' +
-    'Dates and ticks are read from Set Tracker; enter them there. Tap a lot for its pieces by colour and size.</p>';
-
-  h += '<div class="sumline">' +
-    ['tight', 'spread', 'incomplete', 'done'].map(k =>
-      '<span class="sm"><i class="sdot ' + DOT[k] + '"></i>' + count[k] + ' ' + k + '</span>').join('') +
-    '</div>';
-
-  const noCat = rows.filter(r => !r.cat);
-  if (noCat.length) {
-    h += '<div class="note bad"><b>' + noCat.length + ' lot' + (noCat.length > 1 ? 's have' : ' has') +
-      ' no category</b> — ' + noCat.map(r => esc(r.label)).join(', ') +
-      '. Add them in Set Tracker and their stages will appear here.</div>';
+  let h = '<div class="pr-sum"><span class="pr-n">' + all.length + ' designs out</span>' +
+    ['ontrack', 'late', 'incomplete', 'done'].map(k =>
+      '<span class="sm"><i class="sdot ' + DOT2[k] + '"></i>' + count[k] + ' ' + STATUS_LABEL[k] + '</span>').join('') + '</div>';
+  if (staleDays > 14) {
+    h += '<div class="note bad"><b>Latest jobslip in this data is ' + newest + '</b> — ' + staleDays +
+      ' days ago. Anything shown as still with a karigar may have come back since. Re-export from VastraApp with the full date range.</div>';
   }
-
-  // grouped the way the board groups them
-  const groups = new Map();
+  h += '<div class="pr-grid pr-head"><span>Pattern</span><span>Main</span><span>Inner</span><span>Bottoms</span><span>Extra</span></div>';
+  h += '<p class="pr-key">✓ back · date = due · Stitch, Button… = where it is, no due date · + split across karigars · — not started · tap a row for details</p>';
+  if (!rows.length) h += '<div class="empty">Nothing matches that search.</div>';
   for (const r of rows) {
-    const k = r.cat ? r.cat.name : 'Not on the board';
-    if (!groups.has(k)) groups.set(k, []);
-    groups.get(k).push(r);
+    const open = S.openLot.has(r.design);
+    h += '<div class="pr-row' + (open ? ' open' : '') + '" data-lot="' + esc(r.design) + '">' +
+      '<div class="pr-grid"><span class="pr-p"><i class="sdot ' + DOT2[r.status] + '"></i><b>' + esc(r.title) + '</b>' +
+      (r.ageDays > 30 ? '<small class="pr-age">' + r.ageDays + 'd</small>' : '') + '</span>' +
+      r.comps.map(prodCell).join('') + '</div>';
+    if (open) h += prodDetail(r);
+    h += '</div>';
   }
-
-  for (const [name, items] of [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
-    h += '<div class="gt"><span>' + esc(name) + '</span><span class="ct">' + items.length + '</span></div>';
-    for (const r of items) h += lotCard(r);
-  }
-  $('#prod-body').innerHTML = h;
+  body.innerHTML = h;
 }
 
-function lotCard(r) {
-  const open = S.openLot.has(r.lot.id);
-  let h = '<div class="lot' + (r.status === 'done' ? ' is-done' : '') + '" data-lot="' + esc(r.lot.id) + '">' +
-    '<div class="lot-h"><i class="sdot ' + DOT[r.status] + '"></i>' +
-    (r.priority ? '<span class="star">★</span>' : '') +
-    '<b>' + esc(r.label) + '</b>' +
-    '<span class="lot-m">' + (r.lot.pieces
-      ? r.lot.pieces + ' pcs · cut ' + shortDate(new Date(r.lot.cut).toISOString().slice(0, 10))
-      : 'not in purchase yet') + '</span>' +
-    (r.ready ? '<span class="ready">' + shortDate(r.ready) + '</span>'
-             : '<span class="pend">' + (r.cat ? 'no date' : 'not tracked') + '</span>') +
-    '</div>';
-
-  if (r.cells.length) {
-    h += '<div class="parts">' + ROLE_ORDER.map(role => {
-      const ps = r.cells.filter(c => c.role === role);
-      if (!ps.length) return '';
-      return ps.map(c => '<span class="pt' + (c.done ? ' pt-done' : (c.date ? '' : ' pt-empty')) + '">' +
-        esc(c.label) + (c.done ? ' ✓' : (c.date ? ' ' + shortDate(c.date) + (c.shifted ? ' +' : '') : ' —')) + '</span>').join('');
-    }).join('') + '</div>';
-  }
-  if (r.catVia) h += '<div class="lot-n">category taken from ' + esc(r.catVia) + '</div>';
-  if (r.note) h += '<div class="lot-n">' + esc(r.note) + '</div>';
-
-  if (open) {
-    h += '<div class="bd">';
-    if (!r.lot.rows.length) h += '<div class="bd-r">No purchase entry for this lot yet, so its pieces are unknown.</div>';
-    for (const g of Lots.breakdown(r.lot.rows)) {
-      h += '<div class="bd-r"><b>DES-' + esc(g.design) + '</b> ' + esc(g.color) +
-        '<span class="bd-t">' + g.total + ' pcs</span><div class="bd-s">' +
-        g.sizes.map(x => '<span>' + esc(x.size) + ' × ' + x.qty + '</span>').join('') + '</div></div>';
+function prodDetail(r) {
+  const today = todayMs();
+  let h = '<div class="pr-d">';
+  if (r.lots.length) h += '<div class="pr-meta">Lot ' + r.lots.map(esc).join(', ') + ' · out since ' + fmtDay(r.oldest) + '</div>';
+  for (const c of r.comps) {
+    if (!c.slips.length && !c.required) continue;
+    h += '<div class="pr-c"><div class="pr-ch"><b>' + ROLE_LABEL[c.role] + '</b>' +
+      (c.pieces.length ? ' · ' + c.pieces.map(esc).join(', ') : '') +
+      '<span>' + (c.state === 'done' ? 'done ' + fmtDay(c.doneOn) : c.state === 'none' ? 'not started' : 'in progress') + '</span></div>';
+    for (const a of c.at.slice().sort((x, y) => x.depth - y.depth || x.color.localeCompare(y.color))) {
+      const days = a.date ? Math.round((today - a.date) / dayMs) : null;
+      h += '<div class="pr-at"><span class="pr-who">' + esc(a.karigar || '—') + '</span>' +
+        '<span>' + esc(stageShort(a.job)) + ' · ' + esc(a.color || '—') + ' · <b>' + a.left + ' pcs</b></span>' +
+        '<span class="pr-when">since ' + fmtDay(a.date) + (days != null && days > 30 ? ' (' + days + ' days)' : '') +
+        (a.expected ? ' · due <span class="' + (a.expected < today ? 'bal' : 'ready') + '">' + fmtDay(a.expected) + '</span>' : ' · no due date') +
+        ' · ' + esc(a.no) + '</span></div>';
+    }
+    const done = c.slips.filter(s => !s.pending);
+    if (done.length) {
+      h += '<div class="pr-hist">Done: ' + done.sort((x, y) => (x.date || 0) - (y.date || 0)).map(s =>
+        esc(stageShort(s.job)) + ' (' + esc(s.karigar) + ', ' + esc(s.color) + ' ' + s.qty + ')').join(' → ') + '</div>';
     }
     h += '</div>';
   }
-  return h + '</div>';
+  // what is owed on this design, by colour and size
+  const owed = new Map();
+  for (const ln of (S.lines || [])) {
+    if (ln.design !== r.design) continue;
+    const k = ln.color + '|' + ln.sizeLabel;
+    if (!owed.has(k)) owed.set(k, { color: ln.color, size: ln.sizeLabel, pcs: 0, parties: new Set() });
+    const o = owed.get(k); o.pcs += ln.qty; o.parties.add(ln.customer);
+  }
+  const ow = [...owed.values()].sort((a, b) => a.color.localeCompare(b.color) || String(a.size).localeCompare(String(b.size), undefined, { numeric: true }));
+  h += '<div class="pr-c"><div class="pr-ch"><b>Pending orders</b><span>' +
+    ow.reduce((t, o) => t + o.pcs, 0) + ' pcs</span></div>';
+  h += ow.length ? ow.map(o => '<div class="pr-o"><span>' + esc(title(o.color)) + ' ' + esc(o.size) + '</span><span>' +
+      o.parties.size + ' part' + (o.parties.size === 1 ? 'y' : 'ies') + '</span><b>' + o.pcs + ' pcs</b></div>').join('')
+    : '<div class="pr-hist">No pending orders for this design.</div>';
+  h += '</div></div>';
+  return h;
+}
+
+/* jobcard file loaded straight into the tab */
+async function loadJobFile(f) {
+  try {
+    const { rows } = await readSheet(f, 'Jobcard');
+    const bad = missingCols(rows, ['Jobslip No', 'Design Name', 'Piece Name', 'Jobslip Status'], 'jobcard');
+    if (bad) return msg(bad, 'bad');
+    S.jobRows = slim(rows, J_COLS);
+    S.meta.jobs = f.name;
+    save(); renderProduction();
+  } catch (e) { msg('That file ' + esc(e.message || 'could not be opened') + '.', 'bad'); }
 }
 
 /* ---------- manual allotment ----------
@@ -2547,6 +2681,8 @@ function wireSearch(inputId, clearId, key, render) {
 wireSearch('qCust', 'clrCust', 'cust', renderCustomer);
 wireSearch('qDesign', 'clrDesign', 'design', renderDesign);
 wireSearch('qAllot', 'clrAllot', 'allot', renderAllot);
+wireSearch('qProd', 'clrProd', 'prod', renderProduction);
+$('#fJobs').addEventListener('change', e => { const f = e.target.files[0]; if (f) loadJobFile(f); e.target.value = ''; });
 
 $('#ageDays').addEventListener('change', rebuild);
 $('#clrManual').addEventListener('click', () => {
@@ -2557,7 +2693,7 @@ $('#mode').addEventListener('change', rebuild);
 $('#defCat').addEventListener('change', rebuild);
 $('#clear').addEventListener('click', () => {
   if (!confirm('Clear the loaded files? Party categories are kept.')) return;
-  S.orderRows = S.stockRows = S.purchRows = null; S.lines = []; S.allocRows = [];
+  S.orderRows = S.stockRows = S.purchRows = S.jobRows = null; S.lines = []; S.allocRows = [];
   S.track = null; SetTracker.raw = null; SetTracker.index = null;
   S.meta = { orders: '', stock: '', track: '', when: '' };
   store.set('allot.data', null);
