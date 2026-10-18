@@ -229,8 +229,8 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
 
 <header class="top">
   <h1>Pending &amp; Allotment</h1>
-  <span class="ver">v8.8</span>
-  <span class="chip" id="build">build 8.8</span>
+  <span class="ver">v8.9</span>
+  <span class="chip" id="build">build 8.9</span>
   <span class="chip" id="chip" title="Set Tracker connection">local</span>
 </header>
 <p class="sub-t">Your two pending reports, with stock already allotted against them.</p>
@@ -328,7 +328,12 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
 </div>
 <script>
 /* First thing on the page: any error at all becomes visible instead of a dead screen. */
+function fromExtension(x) {
+  var s = String((x && (x.stack || x.filename || x.message)) || x || '');
+  return /extension:\/\/|moz-extension|safari-web-extension|MetaMask/i.test(s);
+}
 window.addEventListener('error', function (ev) {
+  if (fromExtension(ev.error) || fromExtension(ev.filename)) return;
   var m = document.getElementById('msg'); if (!m) return;
   var t = ev.error && ev.error.stack ? ev.error.stack.split('\n').slice(0, 2).join(' — ') : ev.message;
   m.innerHTML = '<div class="note bad"><b>Script error:</b> ' + String(t).replace(/</g, '&lt;') + '</div>';
@@ -1156,15 +1161,14 @@ const Sheets = {
   /* Pasting into Sheets turns 4-8, 1-10, 6-10 into dates. Those rows either
      arrive as a date or, through this endpoint, as a blank. Either way the
      stock for that design would be silently short, so they are counted. */
-  badSizes(rows, qtyCol) {
+  badSizes(rows, qtyCol) { return this.badRows(rows, qtyCol).map(r => String(r['Size'] == null ? '' : r['Size']).trim() || '(blank)'); },
+  badRows(rows, qtyCol) {
     const ok = /^(\d{1,2}(-\d{1,2})?|Default|Mix)$/i;
-    const bad = [];
-    for (const r of rows) {
+    return rows.filter(r => {
       const sz = String(r['Size'] == null ? '' : r['Size']).trim();
       const q = Number(r[qtyCol] || 0);
-      if (sz === '' ? q !== 0 : !ok.test(sz)) bad.push(sz || '(blank)');
-    }
-    return bad;
+      return sz === '' ? q !== 0 : !ok.test(sz);
+    });
   },
 
   sig(rows) {
@@ -1186,7 +1190,7 @@ const Sheets = {
     const url = this.source(which);
     if (!url) return false;
     try {
-      const rows = await this.grab(url);
+      let rows = await this.grab(url);
       if (!rows.length && which === 'jobs') return false;
       if (!rows.length) throw new Error(which === 'stock' && !S.src.stock
         ? 'the “' + STOCK_TAB + '” tab is empty or missing — check the tab name matches exactly'
@@ -1198,12 +1202,18 @@ const Sheets = {
       if (which === 'orders') {
         const bad = missingCols(rows, ['Design Name', 'Customer Name', 'Color', 'Size', 'Pending Qty.'], 'pending order');
         if (bad) throw new Error(bad);
-        const mangled = this.badSizes(rows, 'Pending Qty.');
-        if (mangled.length) {
-          this.problems.push('<b>Orders not updated — ' + mangled.length + ' row' + (mangled.length > 1 ? 's have' : ' has') +
-            ' sizes Google Sheets turned into dates</b> (' + esc([...new Set(mangled)].slice(0, 3).join(', ')) + '). ' +
-            (S.orderRows ? 'Still using the last good orders. ' : '') + 'Format the Size column as Plain text and paste again.');
-          return false;
+        const broken = this.badRows(rows, 'Pending Qty.');
+        if (broken.length) {
+          const good = rows.filter(r => !broken.includes(r));
+          const eg = broken.slice(0, 4).map(r =>
+            esc(r['Order Number'] || '(no order no.)') + ' · ' + esc(r['Design Name'] || '?') + ' · ' + esc(r['Customer Name'] || '?') +
+            ' — Size shows “' + esc(String(r['Size'] || '').trim() || 'blank') + '”').join('<br>');
+          this.problems.push('<b>' + broken.length + ' order line' + (broken.length > 1 ? 's' : '') + ' skipped</b> — the Size cell does not hold a size, so ' +
+            (broken.length > 1 ? 'they were' : 'it was') + ' left out. Everything else is updated. Check ' +
+            (broken.length > 1 ? 'these rows' : 'this row') + ' in the sheet:<br>' + eg +
+            (broken.length > 4 ? '<br>…and ' + (broken.length - 4) + ' more.' : ''));
+          rows = good;
+          if (!rows.length) return false;
         }
         const slimmed = slimOrders(rows);
         const sg = this.sig(slimmed);
@@ -1318,7 +1328,7 @@ const Sheets = {
     const url = S.src.orders ? this.byName(S.src.orders, LOG_TAB) : '';
     if (!url) return;
     try {
-      const rows = await this.grab(url);
+      let rows = await this.grab(url);
       // an unknown tab name makes Google return the first tab instead
       if (!rows.length || !('Tab' in rows[0]) || !('Last pasted' in rows[0])) { S.pasted = null; return; }
       const out = {};
@@ -1760,7 +1770,7 @@ function stampLine() {
     let label, ms;
     if (log && !fromFile) { label = 'pasted'; ms = log.at; }
     else if (S.meta.seen && S.meta.seen[k]) { label = fromFile ? 'file loaded' : 'picked up'; ms = S.meta.seen[k]; }
-    if (!ms) { parts.push('<span><b>' + name[k] + '</b> —</span>'); continue; }
+    if (!ms) { parts.push('<span><b>' + name[k] + '</b> loaded earlier — time shows from the next paste</span>'); continue; }
     const w = whenText(ms);
     parts.push('<span class="' + (w.days >= 3 ? 'st-old' : '') + '"><b>' + name[k] + '</b> ' + label + ' ' + esc(w.text) + '</span>');
   }
@@ -1907,10 +1917,12 @@ function renderDesign() {
 
 /* Any script error becomes visible instead of silently killing a render. */
 window.addEventListener('error', ev => {
+  if (fromExtension(ev.error) || fromExtension(ev.filename)) return;
   const m = ev.error && ev.error.stack ? ev.error.stack.split('\n').slice(0, 2).join(' — ') : ev.message;
   $('#msg').innerHTML = '<div class="note bad"><b>Script error:</b> ' + esc(m) + '</div>';
 });
 window.addEventListener('unhandledrejection', ev => {
+  if (fromExtension(ev.reason)) return;
   $('#msg').innerHTML = '<div class="note bad"><b>Background error:</b> ' + esc((ev.reason && ev.reason.message) || ev.reason) + '</div>';
 });
 
