@@ -37,7 +37,11 @@ header.top .ver{color:var(--ink-2);font-size:12px}
 .drop .lab{font-weight:600;font-size:14px}
 .drop .hint{color:var(--ink-2);font-size:12.5px;margin-top:3px;display:block;word-break:break-word}
 .drop input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
-#stamp{display:block;color:var(--ink-2);font-size:12px;margin-top:8px}
+#stamp{display:flex;flex-direction:column;gap:2px;color:var(--ink-2);font-size:12.5px;margin-top:9px}
+#stamp b{color:var(--ink);font-weight:600;margin-right:2px}
+#stamp .st-old{color:var(--amber)}
+#stamp .st-old b{color:var(--amber)}
+#stamp .st-h{font-size:11.5px;margin-top:3px}
 
 .bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:14px 0}
 button{font:inherit;font-size:14px;background:var(--card);color:var(--ink);border:1px solid var(--rule);border-radius:3px;padding:7px 13px;cursor:pointer}
@@ -72,6 +76,7 @@ tr.grp td{background:#EDF0EF;font-weight:600;font-size:12.5px}
 tr.sub-h td{background:var(--sub);font-size:11.5px;color:var(--ink-2);font-weight:600}
 tr.sub td{background:var(--sub);cursor:pointer}
 @media(hover:hover){tr.sub:hover td{background:#EFF3F1}}
+tr.detail td .nt-i{display:inline-block;margin-right:14px}
 tr.detail td .nt{margin-top:5px;padding-top:5px;border-top:1px dashed var(--rule)}
 tr.detail td{background:var(--sub);font-size:12.5px;color:var(--ink-2);white-space:normal}
 .dk{color:var(--ink);font-weight:600;margin-left:10px}
@@ -224,8 +229,8 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
 
 <header class="top">
   <h1>Pending &amp; Allotment</h1>
-  <span class="ver">v8.3</span>
-  <span class="chip" id="build">build 8.3</span>
+  <span class="ver">v8.5</span>
+  <span class="chip" id="build">build 8.5</span>
   <span class="chip" id="chip" title="Set Tracker connection">local</span>
 </header>
 <p class="sub-t">Your two pending reports, with stock already allotted against them.</p>
@@ -475,8 +480,16 @@ function buildDemandCore(orderRows, opts = {}) {
       perSize: spread(qty, sizes),
       agent: r['Agent Name'] || '',
       tag: r['Tag'] || '',
-      orderNote: String(r['Order Note'] || '').trim(),
-      itemNote: String(r['Item Notes'] || '').trim(),
+      notes: (() => {
+        const seen = new Set(), out = [];
+        for (const k of Object.keys(r)) {
+          if (!isNoteCol(k)) continue;
+          const t = String(r[k] == null ? '' : r[k]).trim();
+          if (!t || seen.has(t.toLowerCase())) continue;
+          seen.add(t.toLowerCase()); out.push({ label: k.trim(), text: t });
+        }
+        return out;
+      })(),
     });
   });
   return { lines, skipped };
@@ -689,8 +702,7 @@ function allocationRows(lines, alloc, catOf, defaultCat) {
       balance: ln.qty - got,
       ranges: toRanges(a),
       lineId: ln.id,
-      orderNote: ln.orderNote || '',
-      itemNote: ln.itemNote || '',
+      notes: ln.notes || [],
     });
   }
   return rows;
@@ -1054,6 +1066,13 @@ const O_COLS = ['Order Number', 'Order Date', 'Design Name', 'Customer Name', 'C
 const S_COLS = ['Design Name', 'Color Name', 'Size', 'Current Stock'];
 const P_COLS = ['Challan No', 'Design Number', 'Design Name Without Prefix', 'Color', 'Size', 'Quantity', 'Purchase Date'];
 const slim = (rows, cols) => rows.map(r => { const o = {}; for (const c of cols) o[c] = r[c]; return o; });
+/* VastraApp has several note fields (Order Note, Order notes, Item Notes, Design
+   wise notes…) and the sheet may carry any of them, so keep all of them */
+const isNoteCol = k => /note/i.test(k);
+const slimOrders = rows => {
+  const extra = rows.length ? Object.keys(rows[0]).filter(k => isNoteCol(k) && !O_COLS.includes(k)) : [];
+  return slim(rows, O_COLS.concat(extra));
+};
 
 const store = {
   get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } },
@@ -1066,6 +1085,8 @@ const store = {
    endpoint) or a File → Share → Publish to web CSV link. Read-only.
 ------------------------------------------------------------------ */
 const STOCK_TAB = 'Stock Report - Detailed';
+const LOG_TAB = 'Paste Log';
+const TAB_OF = { orders: 'Input Design Pending Orders', stock: 'Stock Report - Detailed', jobs: 'Jobslips', purchase: 'Purchase Inward' };
 
 const Sheets = {
   last: {},        // which -> signature of the data last applied
@@ -1174,7 +1195,7 @@ const Sheets = {
             (S.orderRows ? 'Still using the last good orders. ' : '') + 'Format the Size column as Plain text and paste again.');
           return false;
         }
-        const slimmed = slim(rows, O_COLS);
+        const slimmed = slimOrders(rows);
         const sg = this.sig(slimmed);
         if (sg === this.last.orders) return 'same';
         this.last.orders = sg;
@@ -1224,6 +1245,9 @@ const Sheets = {
         S.purchRows = slim(rows, P_COLS);
         S.meta.purchase = 'from sheet';
       }
+      S.meta.seen = S.meta.seen || {};
+      S.meta.seen[which] = Date.now();
+      if (S.meta.fromFile) delete S.meta.fromFile[which];
       return true;
     } catch (e) {
       const cors = /Failed to fetch|NetworkError|Load failed/i.test(e.message || '');
@@ -1253,7 +1277,9 @@ const Sheets = {
       if (btn) btn.textContent = 'Refresh from sheet';
       this.busy = false;
     }
+    await this.readLog();
     const changed = r.some(x => x === true);
+    paintIntake();
     if (changed) {
       S.meta.when = new Date().toLocaleString();
       save(); rebuild();
@@ -1265,6 +1291,34 @@ const Sheets = {
       else if (!quiet && !changed && r.some(x => x === 'same')) box.innerHTML = '<div class="note">Sheet checked — nothing has changed since the last pull.</div>';
       else box.innerHTML = '';
     }
+  },
+
+  /* The sheet's own record of when each tab was last pasted into, written by a
+     small script in the sheet. Missing tab or no script: the app falls back to
+     the time it first saw the new data. */
+  /* what was loaded last time, so an unchanged sheet is recognised after a reopen */
+  seed() {
+    if (S.orderRows) this.last.orders = this.sig(S.orderRows);
+    if (S.stockRows) this.last.stock = this.sig(S.stockRows);
+    if (S.purchRows) this.last.purchase = this.sig(S.purchRows);
+    if (S.jobRows) this.last.jobs = this.sig(S.jobRows);
+  },
+
+  async readLog() {
+    const url = S.src.orders ? this.byName(S.src.orders, LOG_TAB) : '';
+    if (!url) return;
+    try {
+      const rows = await this.grab(url);
+      // an unknown tab name makes Google return the first tab instead
+      if (!rows.length || !('Tab' in rows[0]) || !('Last pasted' in rows[0])) { S.pasted = null; return; }
+      const out = {};
+      for (const r of rows) {
+        const t = String(r['Tab'] || '').trim();
+        const at = pasteTime(r['Last pasted']);
+        if (t && at) out[t] = { at, rows: Number(r['Rows'] || 0) || null };
+      }
+      S.pasted = out;
+    } catch (e) { /* the log is a nicety; never let it break a pull */ }
   },
 
   /* Paste in the sheet, come back to the app: it checks again by itself.
@@ -1543,8 +1597,9 @@ $('#fOrders').addEventListener('change', async e => {
     const { rows } = await readSheet(f, 'Input Design Pending Orders');
     const bad = missingCols(rows, ['Design Name', 'Customer Name', 'Color', 'Size', 'Pending Qty.'], 'pending order');
     if (bad) return msg(bad, 'bad');
-    S.orderRows = slim(rows, O_COLS);
+    S.orderRows = slimOrders(rows);
     S.meta.orders = f.name;
+    S.meta.seen = S.meta.seen || {}; S.meta.seen.orders = Date.now(); S.meta.fromFile = Object.assign(S.meta.fromFile || {}, { orders: true });
     S.meta.when = new Date().toLocaleString();
     S.open.clear(); S.openCust.clear();
     save(); rebuild();
@@ -1559,6 +1614,7 @@ $('#fStock').addEventListener('change', async e => {
     if (bad) return msg(bad, 'bad');
     S.stockRows = slim(rows, S_COLS);
     S.meta.stock = f.name;
+    S.meta.seen = S.meta.seen || {}; S.meta.seen.stock = Date.now(); S.meta.fromFile = Object.assign(S.meta.fromFile || {}, { stock: true });
     S.meta.when = new Date().toLocaleString();
     save(); rebuild();
   } catch (err) { msg('That file ' + esc(err.message || 'could not be opened') + '.', 'bad'); }
@@ -1572,6 +1628,7 @@ $('#fPurch').addEventListener('change', async e => {
     if (bad) return msg(bad, 'bad');
     S.purchRows = slim(rows, P_COLS);
     S.meta.purchase = f.name;
+    S.meta.seen = S.meta.seen || {}; S.meta.seen.purchase = Date.now(); S.meta.fromFile = Object.assign(S.meta.fromFile || {}, { purchase: true });
     S.meta.when = new Date().toLocaleString();
     save(); rebuild();
   } catch (err) { msg('That file ' + esc(err.message || 'could not be opened') + '.', 'bad'); }
@@ -1662,6 +1719,48 @@ function rebuild() {
   checkColours();
 }
 
+/* "2026-10-16 16:12" from the script; tolerate what Sheets may display instead */
+function pasteTime(v) {
+  const s = String(v == null ? '' : v).trim();
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{2})/);
+  if (m) return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]).getTime();
+  m = s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})[ ,]+(\d{1,2}):(\d{2})/);
+  if (m) return new Date(+m[3], +m[2] - 1, +m[1], +m[4], +m[5]).getTime();
+  return null;
+}
+
+function whenText(ms) {
+  const d = new Date(ms), now = new Date();
+  const day = x => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((day(now) - day(d)) / 86400000);
+  const rel = diff <= 0 ? 'today' : diff === 1 ? 'yesterday' : diff + ' days ago';
+  const t = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return { text: d.getDate() + ' ' + D_MON[d.getMonth()] + ', ' + t + ' (' + rel + ')', days: diff };
+}
+
+/* one line per source: when it was pasted into the sheet, or when the app first saw it */
+function stampLine() {
+  const have = { orders: S.orderRows, stock: S.stockRows, purchase: S.purchRows, jobs: S.jobRows };
+  const name = { orders: 'Orders', stock: 'Stock', purchase: 'Purchase', jobs: 'Jobslips' };
+  const parts = [];
+  for (const k of ['orders', 'stock', 'jobs', 'purchase']) {
+    if (!have[k]) continue;
+    const log = S.pasted && S.pasted[TAB_OF[k]];
+    const fromFile = S.meta.fromFile && S.meta.fromFile[k];
+    let label, ms;
+    if (log && !fromFile) { label = 'pasted'; ms = log.at; }
+    else if (S.meta.seen && S.meta.seen[k]) { label = fromFile ? 'file loaded' : 'picked up'; ms = S.meta.seen[k]; }
+    if (!ms) { parts.push('<span><b>' + name[k] + '</b> —</span>'); continue; }
+    const w = whenText(ms);
+    parts.push('<span class="' + (w.days >= 3 ? 'st-old' : '') + '"><b>' + name[k] + '</b> ' + label + ' ' + esc(w.text) + '</span>');
+  }
+  if (!parts.length) return '';
+  const hint = S.src.orders && !S.pasted
+    ? '<span class="st-h">“picked up” is when this app first saw the data. Add the paste-log script to the sheet to show the actual paste time.</span>'
+    : '';
+  return parts.join('') + hint;
+}
+
 function paintIntake() {
   $('#hOrders').textContent = S.orderRows ? S.orderRows.length + ' order rows · ' + (S.meta.orders || 'loaded') : 'Design Wise Order Report — tap to choose';
   $('#dropOrders').classList.toggle('on', !!S.orderRows);
@@ -1676,7 +1775,7 @@ function paintIntake() {
     ? n + ' patterns · ' + (Live.on ? 'live from the board' : (S.meta.track || 'from file'))
     : 'Reads the live board — or tap for an Export JSON';
   $('#dropTrack').classList.toggle('on', !!n);
-  $('#stamp').textContent = S.meta.when ? 'Loaded ' + S.meta.when + ' · kept until you load new files' : '';
+  $('#stamp').innerHTML = stampLine();
 }
 
 function paintEmpty() {
@@ -1877,10 +1976,8 @@ function drillRows(g) {
         ' <span class="dk">Dated</span> ' + esc(k.date || '—') +
         (k.ranges.length ? ' <span class="dk">Sizes reserved</span> ' + k.ranges.map(x => esc(x.size) + '&times;' + x.pieces).join(', ') : '') +
         ' <span class="dk">Dispatch</span> ' + dispatchCell(g.design, g.color, g.size, k.ordered, k.allocated) +
-        (k.orderNote || k.itemNote
-          ? '<div class="nt">' +
-            (k.orderNote ? '<span class="dk">Order note</span> ' + esc(k.orderNote) : '') +
-            (k.itemNote ? (k.orderNote ? ' ' : '') + '<span class="dk">Item note</span> ' + esc(k.itemNote) : '') + '</div>'
+        (k.notes && k.notes.length
+          ? '<div class="nt">' + k.notes.map(n => '<span class="nt-i"><span class="dk">' + esc(n.label) + '</span> ' + esc(n.text) + '</span>').join('') + '</div>'
           : '') +
         '</td></tr>';
     }
@@ -2184,6 +2281,7 @@ async function loadJobFile(f) {
     if (bad) return msg(bad, 'bad');
     S.jobRows = slim(rows, J_COLS);
     S.meta.jobs = f.name;
+    S.meta.seen = S.meta.seen || {}; S.meta.seen.jobs = Date.now(); S.meta.fromFile = Object.assign(S.meta.fromFile || {}, { jobs: true });
     save(); renderProduction();
   } catch (e) { msg('That file ' + esc(e.message || 'could not be opened') + '.', 'bad'); }
 }
@@ -2725,6 +2823,7 @@ $('#clear').addEventListener('click', () => {
 
 Manual.load();
 restore();
+Sheets.seed();
 Live.chip('wait', 'connecting');
 firebaseReady.then(() => Live.start(), () => Live.chip('', 'offline board'));
 Sheets.pullAll(false);
