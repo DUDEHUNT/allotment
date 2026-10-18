@@ -229,8 +229,8 @@ p.exp{color:var(--ink-2);font-size:13px;margin:0 0 12px;max-width:74ch}
 
 <header class="top">
   <h1>Pending &amp; Allotment</h1>
-  <span class="ver">v8.7</span>
-  <span class="chip" id="build">build 8.7</span>
+  <span class="ver">v8.8</span>
+  <span class="chip" id="build">build 8.8</span>
   <span class="chip" id="chip" title="Set Tracker connection">local</span>
 </header>
 <p class="sub-t">Your two pending reports, with stock already allotted against them.</p>
@@ -1109,6 +1109,9 @@ const Sheets = {
   /* what each source actually points at: a pasted link wins, otherwise stock
      comes from the stock tab of the sheet the orders already come from */
   source(which) {
+    if (which === 'orders' && S.src.orders && /\/spreadsheets\/d\/(?!e\/)/.test(S.src.orders) && !/[#&?]gid=\d+/.test(S.src.orders)) {
+      return this.byName(S.src.orders, TAB_OF.orders);
+    }
     if (S.src[which]) return S.src[which];
     if (which === 'stock' && S.src.orders) return this.byName(S.src.orders, STOCK_TAB);
     if (which === 'jobs' && S.src.orders) return this.byName(S.src.orders, JOBS_TAB);
@@ -1811,6 +1814,11 @@ function hits(q, design, color, customers) {
   return q.split(/\s+/).filter(Boolean).every(term => hay.includes(term));
 }
 
+function noteCount() {
+  const n = S.lines.filter(l => l.notes && l.notes.length).length;
+  return n ? 'notes on ' + n + ' order line' + (n === 1 ? '' : 's') : '<b class="bal">no order notes came through</b>';
+}
+
 function cmpDesign(a, b) {
   return a.design.localeCompare(b.design, undefined, { numeric: true })
     || a.color.localeCompare(b.color)
@@ -1874,7 +1882,7 @@ function renderDesign() {
   const rows = q ? all.filter(r => hits(q, r.design, r.color, r.lines.map(l => l.customer).join(' '))) : all;
   let h = '<h2 class="sec">Design wise pending orders</h2>' +
     '<p class="exp">' + rows.length + ' rows · ' + rows.reduce((t, r) => t + r.qty, 0) + ' pieces pending · ' +
-    rows.reduce((t, r) => t + r.allotted, 0) + ' allotted. Tap any row for the parties behind it.</p>' +
+    rows.reduce((t, r) => t + r.allotted, 0) + ' allotted · ' + noteCount() + '. Tap any row for the parties behind it.</p>' +
     (q ? '<p class="hit">Showing ' + rows.length + ' of ' + all.length + ' rows matching “' + esc(S.q.design.trim()) + '”</p>' : '') +
     '<div class="seg"><span class="seg-l">Sort</span>' +
     [['design', 'design no.'], ['qty', 'most ordered'], ['short', 'most short']]
